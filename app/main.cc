@@ -25,7 +25,7 @@ int main(int argc, char** argv)
     Plotter plotter{};
     plotter.plot({0, 1, 2, 3}, {1, std::sqrt(2.0), M_PI, 0.0});
     window.add(plotter);
-    window.resize(300, 200);
+    window.resize(500, 300);
     plotter.show();
 
     return app->run(window);

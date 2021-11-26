@@ -15,3 +15,20 @@
 
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include "doctest.h"
+
+#include <plotter.hh>
+
+TEST_CASE("ticks")
+{
+    Axis ax;
+    ax.set_pixels(100, 1000);
+    ax.set_range(1.0, 10.0);
+    auto ts{ax.ticks()};
+    CHECK(ts.size() == 5);
+    CHECK(ts[0].pixel == 200);
+    CHECK(ts[0].label == "2");
+    CHECK(ts[1].pixel == 400);
+    CHECK(ts[1].label == "4");
+    CHECK(ts[4].pixel == 1000);
+    CHECK(ts[4].label == "10");
+}
