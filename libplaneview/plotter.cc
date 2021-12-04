@@ -1,24 +1,26 @@
 // Copyright © 2021 Sam Varner
 //
-// This file is part of Plane View.
+// This file is part of Plane View
 //
-// 4color is free software: you can redistribute it and/or modify it under the terms of
-// the GNU General Public License as published by the Free Software Foundation, either
+// Plane View is free software: you can redistribute it and/or modify it under the terms
+// of the GNU General Public License as published by the Free Software Foundation, either
 // version 3 of the License, or (at your option) any later version.
 //
 // Plane View is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
 // without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR
 // PURPOSE.  See the GNU General Public License for more details.
 //
-// You should have received a copy of the GNU General Public License along with 4color.
-// If not, see <http://www.gnu.org/licenses/>.
+// You should have received a copy of the GNU General Public License along with Plane
+// View.  If not, see <http://www.gnu.org/licenses/>.
 
-#include <iomanip>
 #include <iostream>
 #include <cassert>
+#include <fcntl.h>
+#include <fstream>
 #include <numbers>
-#include <numeric>
-#include <sstream>
+#include <stdlib.h>
+#include <sys/types.h>
+#include <sys/stat.h>
 
 #include <plotter.hh>
 
@@ -32,136 +34,119 @@ struct Color
 };
 
 Color constexpr black{0, 0, 0};
-Color constexpr light_gray{210, 210, 210};
+Color constexpr background{225, 225, 245};
 Color constexpr white{255, 255, 255};
 
 void set_color(Context cr, Color color)
 {
     cr->set_source_rgb(color.red/255.0,
-		       color.green/255.0,
-		       color.blue/255.0);
-}
-
-std::pair<double, int> axis_round(double x)
-{
-    using namespace std;
-    auto b{1 - static_cast<int>(floor(log10(x)))};
-    auto lead{static_cast<int>(floor(x*pow(10, b)))};
-    auto closest{100};
-    auto last_l{100};
-    auto prec{1};
-    for (auto l : {10, 20, 25, 50, 100})
-    {
-	auto diff{abs(lead - l)};
-	if (diff >= closest)
-	{
-	    prec = (last_l == 25 ? 2 : 1) - b;
-	    break;
-	}
-	closest = diff;
-	last_l = l;
-    }
-    std::cout << x << ' ' << b << ' ' << prec << std::endl;
-    return {last_l*pow(10, -b), prec};
-}
-
-Axis::Axis()
-{
-}
-
-void Axis::set_pixels(int low, int high)
-{
-    m_low_pos = low;
-    m_high_pos = high;
-}
-
-void Axis::set_range(double low, double high)
-{
-    m_min = low;
-    m_max = high;
-}
-
-void Axis::zoom(double factor)
-{
-    auto mid{std::midpoint(m_min, m_max)};
-    auto dist{0.5*(m_max - m_min)/factor};
-    m_min = mid - dist;
-    m_max = mid + dist;
-}
-
-void Axis::set_label_pos(int pos)
-{
-    m_label_pos = pos;
-}
-
-Axis::VPoint Axis::ticks() const
-{
-    VPoint ts;
-    auto [dx, x_prec] = axis_round((m_max - m_min)/m_min_ticks);
-    auto low{static_cast<int>(std::ceil(m_min/dx))};
-    auto high{static_cast<int>(std::floor(m_max/dx))};
-    for (auto x{low}; x <= high; ++x)
-    {
-	std::ostringstream os;
-	os << std::fixed << std::setprecision(x_prec) << x*dx;
-	ts.emplace_back(to_pixels(x*dx), os.str());
-    }
-    return ts;
-}
-
-V Axis::to_pixels(V const& xs) const
-{
-    V px;
-    for (auto x : xs)
-	px.push_back(to_pixels(x));
-    return px;
-}
-
-double Axis::to_pixels(double x) const
-{
-    auto scale{(m_high_pos - m_low_pos)/(m_max - m_min)};
-    return m_low_pos + scale*(x - m_min);
+               color.green/255.0,
+               color.blue/255.0);
 }
 
 void draw_grid(Context cr, Axis const& x_axis, Axis const& y_axis)
 {
     auto x_ticks{x_axis.ticks()};
     auto y_ticks{y_axis.ticks()};
+    assert (!x_ticks.empty() && !y_ticks.empty());
+
+    auto x_center = [cr](double pos, std::string& str) {
+        Cairo::TextExtents ex;
+        cr->get_text_extents(str, ex);
+        return pos - 0.5*ex.width;
+    };
+    auto y_center = [cr](double pos, std::string& str) {
+        Cairo::TextExtents ex;
+        cr->get_text_extents(str, ex);
+        return pos + 0.5*ex.height;
+    };
+    auto text_width = [cr](std::string& str) {
+        Cairo::TextExtents ex;
+        cr->get_text_extents(str, ex);
+        return ex.width;
+    };
+
+    // Draw the numbers for the ticks.
+    set_color(cr, black);
     for (auto x : x_ticks)
     {
-	cr->move_to(x.pixel, x_axis.label_pos());
-	cr->show_text(x.label);
+        cr->move_to(x_center(x.pixel, x.label), x_axis.label_pos());
+        cr->show_text(x.label);
     }
     for (auto y : y_ticks)
     {
-	cr->move_to(y_axis.label_pos(), y.pixel);
-	cr->show_text(y.label);
+        cr->move_to(x_axis.low_pos() - y_axis.label_pos() - text_width(y.label),
+                    y_center(y.pixel, y.label));
+        cr->show_text(y.label);
     }
 
+    // Draw the tick marks.
+    cr->set_line_width(1.0);
+    set_color(cr, black);
+    for (auto x : x_ticks)
+    {
+        cr->move_to(x.pixel, y_axis.low_pos() + 4);
+        cr->line_to(x.pixel, y_axis.low_pos());
+    }
+    for (auto y : y_ticks)
+    {
+        cr->move_to(x_axis.low_pos() - 4, y.pixel);
+        cr->line_to(x_axis.low_pos(), y.pixel);
+    }
+    cr->stroke();
+
+    // Mask off the area outside the graph.
     cr->rectangle(x_axis.low_pos(), y_axis.low_pos(),
-		  x_axis.size(), y_axis.size());
+                  x_axis.size(), y_axis.size());
     cr->clip();
-    set_color(cr, light_gray);
+
+    // Draw the grid.
+    set_color(cr, background);
     cr->rectangle(x_axis.low_pos(), y_axis.low_pos(),
-		  x_axis.size(), y_axis.size());
+                  x_axis.size(), y_axis.size());
     cr->fill();
 
+    // Major grid lines
     set_color(cr, white);
+    cr->set_line_width(1.0);
     for (auto x : x_ticks)
     {
-	cr->move_to(x.pixel, y_axis.low_pos());
-	cr->line_to(x.pixel, y_axis.high_pos());
+        cr->move_to(x.pixel, y_axis.low_pos());
+        cr->line_to(x.pixel, y_axis.high_pos());
     }
     for (auto y : y_ticks)
     {
-	cr->move_to(x_axis.low_pos(), y.pixel);
-	cr->line_to(x_axis.high_pos(), y.pixel);
+        cr->move_to(x_axis.low_pos(), y.pixel);
+        cr->line_to(x_axis.high_pos(), y.pixel);
+    }
+    cr->stroke();
+
+    // Major grid lines
+    set_color(cr, white);
+    cr->set_line_width(0.5);
+    if (x_ticks.size() > 1)
+    {
+        auto half{0.5*(x_ticks[1].pixel - x_ticks[0].pixel)};
+        for (auto x : x_ticks)
+        {
+            cr->move_to(x.pixel + half, y_axis.low_pos());
+            cr->line_to(x.pixel + half, y_axis.high_pos());
+        }
+    }
+    if (y_ticks.size() > 1)
+    {
+        auto half{0.5*(y_ticks[1].pixel - y_ticks[0].pixel)};
+        for (auto y : y_ticks)
+        {
+            cr->move_to(x_axis.low_pos(), y.pixel + half);
+            cr->line_to(x_axis.high_pos(), y.pixel + half);
+        }
     }
     cr->stroke();
 }
 
 void draw_plot(Context cr, Axis const& x_axis, Axis const& y_axis,
-	       V const& xs, V const& ys, Color color, Line_Style style)
+           V const& xs, V const& ys, Color color, Line_Style style)
 {
     assert(xs.size() == ys.size());
 
@@ -186,20 +171,106 @@ void draw_plot(Context cr, Axis const& x_axis, Axis const& y_axis,
     }
 }
 
-Plotter::Plotter()
+Plotter::Plotter(Glib::RefPtr<Gtk::Application> app)
+    : m_app(app)
 {
     set_can_focus(true);
     add_events(Gdk::KEY_PRESS_MASK | Gdk::BUTTON_PRESS_MASK | Gdk::STRUCTURE_MASK);
+
+    // Can't use mkstemp() because the file is a named pipe. In general, tmpnam() is
+    // unsafe because an imposter file could be created between the tmpnam() and open()
+    // calls. Here, mkfifo() would fail if the file already exists
+    m_pipe = std::tmpnam(nullptr);
+    if (mkfifo(m_pipe.c_str(), 0600) != 0)
+    {
+        std::cerr << "Error creating FIFO " << m_pipe << std::endl;
+        return;
+    }
+    auto read_fd{open(m_pipe.c_str(), O_RDWR)};
+    if (read_fd == -1)
+    {
+        std::cerr << "Error opening " << m_pipe << std::endl;
+        return;
+    }
+    std::cout << "Listening on " << m_pipe << std::endl;
+    Glib::signal_io().connect(sigc::mem_fun(*this, &Plotter::on_read),
+                              read_fd,
+                              Glib::IOCondition::IO_IN);
+    m_io_channel = Glib::IOChannel::create_from_fd(read_fd);
+}
+
+Plotter::~Plotter()
+{
+    std::cout << "unlink " << m_pipe << std::endl;
+    unlink(m_pipe.c_str());
 }
 
 void Plotter::plot(V const& xs, V const& ys)
 {
     m_xs = xs;
     m_ys = ys;
+    autoscale();
+}
+
+void Plotter::autoscale()
+{
     auto [x_min, x_max] = std::minmax_element(m_xs.begin(), m_xs.end());
     auto [y_min, y_max] = std::minmax_element(m_ys.begin(), m_ys.end());
     m_x_axis.set_range(*x_min, *x_max);
     m_y_axis.set_range(*y_min, *y_max);
+}
+
+bool Plotter::on_read(Glib::IOCondition io_cond)
+{
+    if ((io_cond & Glib::IOCondition::IO_IN) != Glib::IOCondition::IO_IN)
+    {
+        std::cerr << "Unexpected IO condition" << std::endl;
+        return true;
+    }
+
+    Glib::ustring line;
+    Glib::IOStatus status{Glib::IO_STATUS_NORMAL};
+    while (status == Glib::IO_STATUS_NORMAL)
+    {
+        status = m_io_channel->read_line(line);
+        std::cout << m_read_state << ' ' << line;
+        if (line == "\n")
+        {
+            ++m_read_state;
+            continue;
+        }
+        if (line == "start\n")
+        {
+            m_read_state = 0;
+            continue;
+        }
+        if (line == "end\n")
+        {
+            m_xs = m_read_xs;
+            m_ys = m_read_ys;
+            m_read_xs.clear();
+            m_read_ys.clear();
+            m_read_state = -1;
+            autoscale();
+            queue_draw();
+            return true;
+        }
+        switch (m_read_state)
+        {
+        case -1:
+            break;
+        case 0:
+            m_read_xs.push_back(std::atof(line.c_str()));
+            break;
+        case 1:
+            m_read_ys.push_back(std::atof(line.c_str()));
+            break;
+        default:
+            // Multiple plots are not implemented yet.
+            assert(false);
+        }
+    }
+    return true;
 }
 
 bool Plotter::on_key_press_event(GdkEventKey* event)
@@ -212,18 +283,18 @@ bool Plotter::on_key_press_event(GdkEventKey* event)
         switch (event->keyval)
         {
         case GDK_KEY_a:
-	    m_zoom = 1.0;
-	    queue_draw();
+        m_zoom = 1.0;
+        queue_draw();
             break;
         case GDK_KEY_Left:
-	    m_x_axis.zoom(0.9);
-	    m_y_axis.zoom(0.9);
-	    queue_draw();
+        m_x_axis.zoom(0.9);
+        m_y_axis.zoom(0.9);
+        queue_draw();
             break;
         case GDK_KEY_Right:
-	    m_x_axis.zoom(1.1);
-	    m_y_axis.zoom(1.1);
-	    queue_draw();
+        m_x_axis.zoom(1.1);
+        m_y_axis.zoom(1.1);
+        queue_draw();
             break;
         case GDK_KEY_Up:
             break;
@@ -243,7 +314,7 @@ bool Plotter::on_key_press_event(GdkEventKey* event)
         case GDK_KEY_w:
             break;
         case GDK_KEY_q:
-            Gtk::Main::quit();
+            m_app->quit();
             break;
         default:
             return true;
@@ -265,15 +336,19 @@ bool Plotter::on_configure_event(GdkEventConfigure* event)
     Cairo::TextExtents ex;
     cr->get_text_extents("x", ex);
 
-    m_x_axis.set_pixels(label.width + 2*ex.width, event->width - ex.width);
+    m_x_axis.set_pixels(label.width + 2*ex.width, event->width - 1.5*ex.width);
     m_x_axis.set_label_pos(event->height - ex.width);
-    m_y_axis.set_pixels(event->height - 3*ex.height, ex.height);
+    m_y_axis.set_pixels(event->height - 3.5*ex.height, 1.5*ex.height);
     m_y_axis.set_label_pos(ex.width);
     return true;
 }
 
 bool Plotter::on_draw(Context const& cr)
 {
+    set_color(cr, white);
+    cr->rectangle(0, 0, get_width(), get_height());
+    cr->fill();
+
     assert(m_xs.size() == m_ys.size());
     if (m_xs.empty())
         return true;

@@ -22,7 +22,7 @@ int main(int argc, char** argv)
     auto app = Gtk::Application::create(argc, argv, "");
 
     Gtk::Window window;
-    Plotter plotter{};
+    Plotter plotter{app};
     plotter.plot({0, 1, 2, 3}, {1, std::sqrt(2.0), M_PI, 0.0});
     window.add(plotter);
     window.resize(500, 300);

@@ -1,4 +1,5 @@
 plane_view_sources = [
+  'axis.cc',
   'plotter.cc',
 ]
 

@@ -9,13 +9,3 @@ plane_view_app = executable('plane-view',
                             include_directories: inc,
                             dependencies: gtkmm_dep,
                             link_with: [plane_view_lib])
-
-piped_view_sources = [
-  'piped.cc',
-]
-
-piped_view_app = executable('piped-view',
-                            piped_view_sources,
-                            include_directories: inc,
-                            dependencies: gtkmm_dep,
-                            link_with: [plane_view_lib])
