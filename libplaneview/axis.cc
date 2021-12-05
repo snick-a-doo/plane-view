@@ -68,6 +68,14 @@ void Axis::set_range(double low, double high)
     m_max = high + pad;
 }
 
+void Axis::set_range_pixels(double low, double high)
+{
+    auto r1{to_coord(low)};
+    auto r2{to_coord(high)};
+    m_min = std::min(r1, r2);
+    m_max = std::max(r1, r2);
+}
+
 void Axis::zoom(double factor)
 {
     auto mid{std::midpoint(m_min, m_max)};
@@ -108,4 +116,10 @@ double Axis::to_pixels(double x) const
 {
     auto scale{(m_high_pos - m_low_pos)/(m_max - m_min)};
     return m_low_pos + scale*(x - m_min);
+}
+
+double Axis::to_coord(double x) const
+{
+    auto scale{(m_high_pos - m_low_pos)/(m_max - m_min)};
+    return (x - m_low_pos)/scale + m_min;
 }

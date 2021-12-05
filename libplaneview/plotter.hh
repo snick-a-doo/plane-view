@@ -20,6 +20,7 @@
 
 #include <gtkmm.h>
 
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -46,6 +47,8 @@ private:
     /// @{
     virtual bool on_key_press_event(GdkEventKey* event) override;
     virtual bool on_button_press_event(GdkEventButton* event) override;
+    virtual bool on_motion_notify_event(GdkEventMotion* event) override;
+    virtual bool on_button_release_event(GdkEventButton* event) override;
     /// Callback for size change.
     virtual bool on_configure_event(GdkEventConfigure* event) override;
     virtual bool on_draw(Context const& cr) override;
@@ -57,7 +60,6 @@ private:
 
     V m_xs;
     V m_ys;
-    double m_zoom{1.0};
     Line_Style m_line_style{Line_Style::points};
     Axis m_x_axis;
     Axis m_y_axis;
@@ -69,6 +71,11 @@ private:
     int m_read_state{-1};
 
     Glib::RefPtr<Gtk::Application> m_app;
+
+    std::optional<double> m_drag_start_x{0.0};
+    std::optional<double> m_drag_start_y{0.0};
+    double m_drag_x;
+    double m_drag_y;
 };
 
 #endif // PLANE_VIEW_LIBPLANEVIEW_GRID_MAP_HH_INCLUDED

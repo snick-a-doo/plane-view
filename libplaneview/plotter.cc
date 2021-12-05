@@ -31,6 +31,7 @@ struct Color
     int red;
     int green;
     int blue;
+    int alpha{255};
 };
 
 Color constexpr black{0, 0, 0};
@@ -39,9 +40,10 @@ Color constexpr white{255, 255, 255};
 
 void set_color(Context cr, Color color)
 {
-    cr->set_source_rgb(color.red/255.0,
-               color.green/255.0,
-               color.blue/255.0);
+    cr->set_source_rgba(color.red/255.0,
+                        color.green/255.0,
+                        color.blue/255.0,
+                        color.alpha/255.0);
 }
 
 void draw_grid(Context cr, Axis const& x_axis, Axis const& y_axis)
@@ -155,27 +157,26 @@ void draw_plot(Context cr, Axis const& x_axis, Axis const& y_axis,
     V py{y_axis.to_pixels(ys)};
     if (style != Line_Style::points)
     {
+        cr->set_line_width(1.0);
         cr->move_to(px[0], py[0]);
         for (std::size_t i = 1; i < px.size(); ++i)
             cr->line_to(px[i], py[i]);
         cr->stroke();
     }
     if (style != Line_Style::lines)
-    {
-        cr->set_line_width(1.0);
         for (std::size_t i = 0; i < px.size(); ++i)
         {
             cr->arc(px[i], py[i], point_radius, 0.0, 2.0*std::numbers::pi);
             cr->fill();
         }
-    }
 }
 
 Plotter::Plotter(Glib::RefPtr<Gtk::Application> app)
     : m_app(app)
 {
     set_can_focus(true);
-    add_events(Gdk::KEY_PRESS_MASK | Gdk::BUTTON_PRESS_MASK | Gdk::STRUCTURE_MASK);
+    add_events(Gdk::KEY_PRESS_MASK | Gdk::BUTTON_PRESS_MASK | Gdk::BUTTON_RELEASE_MASK |
+               Gdk::BUTTON1_MOTION_MASK | Gdk::STRUCTURE_MASK);
 
     // Can't use mkstemp() because the file is a named pipe. In general, tmpnam() is
     // unsafe because an imposter file could be created between the tmpnam() and open()
@@ -283,18 +284,18 @@ bool Plotter::on_key_press_event(GdkEventKey* event)
         switch (event->keyval)
         {
         case GDK_KEY_a:
-        m_zoom = 1.0;
-        queue_draw();
+            autoscale();
+            queue_draw();
             break;
         case GDK_KEY_Left:
-        m_x_axis.zoom(0.9);
-        m_y_axis.zoom(0.9);
-        queue_draw();
+            m_x_axis.zoom(0.9);
+            m_y_axis.zoom(0.9);
+            queue_draw();
             break;
         case GDK_KEY_Right:
-        m_x_axis.zoom(1.1);
-        m_y_axis.zoom(1.1);
-        queue_draw();
+            m_x_axis.zoom(1.1);
+            m_y_axis.zoom(1.1);
+            queue_draw();
             break;
         case GDK_KEY_Up:
             break;
@@ -311,8 +312,6 @@ bool Plotter::on_key_press_event(GdkEventKey* event)
                 % static_cast<int>(Line_Style::num)};
             queue_draw();
             break;
-        case GDK_KEY_w:
-            break;
         case GDK_KEY_q:
             m_app->quit();
             break;
@@ -323,8 +322,37 @@ bool Plotter::on_key_press_event(GdkEventKey* event)
     return true;
 }
 
-bool Plotter::on_button_press_event(GdkEventButton*)
+bool Plotter::on_button_press_event(GdkEventButton* event)
 {
+    if (event->x > m_x_axis.low_pos())
+        m_drag_start_x = event->x;
+    if (event->y < m_y_axis.low_pos())
+        m_drag_start_y = event->y;
+    return true;
+}
+
+bool Plotter::on_motion_notify_event(GdkEventMotion* event)
+{
+    if (!m_drag_start_x && !m_drag_start_y)
+        return true;
+    m_drag_x = event->x;
+    m_drag_y = event->y;
+    queue_draw(); // change to invalidate rect
+
+    return true;
+}
+
+bool Plotter::on_button_release_event(GdkEventButton* event)
+{
+    if (m_drag_start_x)
+        m_x_axis.set_range_pixels(*m_drag_start_x, event->x);
+    if (m_drag_start_y)
+        m_y_axis.set_range_pixels(*m_drag_start_y, event->y);
+    queue_draw(); // change to invalidate rect
+
+    m_drag_start_x.reset();
+    m_drag_start_y.reset();
+
     return true;
 }
 
@@ -355,5 +383,21 @@ bool Plotter::on_draw(Context const& cr)
 
     draw_grid(cr, m_x_axis, m_y_axis);
     draw_plot(cr, m_x_axis, m_y_axis, m_xs, m_ys, black, m_line_style);
+
+    if (!m_drag_start_x && !m_drag_start_y)
+        return true;
+
+    set_color(cr, {128, 128, 128, 128});
+    auto x{m_drag_start_x ? *m_drag_start_x : m_x_axis.low_pos()};
+    auto y{m_drag_start_y ? *m_drag_start_y : m_y_axis.low_pos()};
+    auto width{m_drag_start_x
+        ? m_drag_x - *m_drag_start_x
+        : m_x_axis.high_pos() - m_x_axis.low_pos()};
+    auto height{m_drag_start_y
+        ? m_drag_y - *m_drag_start_y
+        : m_y_axis.high_pos() - m_y_axis.low_pos()};
+    cr->rectangle(x, y, width, height);
+    cr->fill();
+
     return true;
 }

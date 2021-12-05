@@ -30,6 +30,7 @@ public:
     void set_pixels(int low, int high);
     void set_label_pos(int pos);
     void set_range(double low, double high);
+    void set_range_pixels(double low, double high);
     int low_pos() const { return m_low_pos; }
     int high_pos() const { return m_high_pos; }
     int label_pos() const { return m_label_pos; }
@@ -47,6 +48,7 @@ public:
 
 private:
     double to_pixels(double x) const;
+    double to_coord(double x) const;
     int m_low_pos{0};
     int m_high_pos{100};
     int m_label_pos{0};
