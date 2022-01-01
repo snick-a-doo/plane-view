@@ -26,6 +26,7 @@
 
 /// The Cairo drawing context.
 using Context = Cairo::RefPtr<Cairo::Context>;
+using VV = std::vector<V>;
 
 enum class Line_Style
 {
@@ -39,8 +40,6 @@ class Plotter : public Gtk::DrawingArea
 {
 public:
     Plotter(Glib::RefPtr<Gtk::Application> app);
-    ~Plotter();
-    void plot(V const& xs, V const& ys);
 
 private:
     /// DrawingArea methods
@@ -58,16 +57,16 @@ private:
 
     void autoscale();
 
-    V m_xs;
-    V m_ys;
+    /// A vector of x-value vectors, one for each trace.
+    VV m_xs;
+    /// A vector of y-value vectors, one for each trace.
+    VV m_ys;
     Line_Style m_line_style{Line_Style::points};
     Axis m_x_axis;
     Axis m_y_axis;
 
-    std::string m_pipe;
     Glib::RefPtr<Glib::IOChannel> m_io_channel;
-    V m_read_xs;
-    V m_read_ys;
+    sigc::connection m_io_connection;
     int m_read_state{-1};
 
     Glib::RefPtr<Gtk::Application> m_app;

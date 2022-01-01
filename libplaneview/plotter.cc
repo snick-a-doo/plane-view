@@ -38,6 +38,13 @@ Color constexpr black{0, 0, 0};
 Color constexpr background{225, 225, 245};
 Color constexpr white{255, 255, 255};
 
+std::array<Color, 8> colors{
+    Color{0x66, 0xc2, 0xa5}, Color{0xfc, 0x8d, 0x62},
+    Color{0x8d, 0xa0, 0xcb}, Color{0xe7, 0x8a, 0xc3},
+    Color{0xa6, 0xd8, 0x54}, Color{0xff, 0xd9, 0x2f},
+    Color{0xe5, 0xc4, 0x94}, Color{0xb3, 0xb3, 0xb3},
+};
+
 void set_color(Context cr, Color color)
 {
     cr->set_source_rgba(color.red/255.0,
@@ -178,47 +185,32 @@ Plotter::Plotter(Glib::RefPtr<Gtk::Application> app)
     add_events(Gdk::KEY_PRESS_MASK | Gdk::BUTTON_PRESS_MASK | Gdk::BUTTON_RELEASE_MASK |
                Gdk::BUTTON1_MOTION_MASK | Gdk::STRUCTURE_MASK);
 
-    // Can't use mkstemp() because the file is a named pipe. In general, tmpnam() is
-    // unsafe because an imposter file could be created between the tmpnam() and open()
-    // calls. Here, mkfifo() would fail if the file already exists
-    m_pipe = std::tmpnam(nullptr);
-    if (mkfifo(m_pipe.c_str(), 0600) != 0)
-    {
-        std::cerr << "Error creating FIFO " << m_pipe << std::endl;
-        return;
-    }
-    auto read_fd{open(m_pipe.c_str(), O_RDWR)};
-    if (read_fd == -1)
-    {
-        std::cerr << "Error opening " << m_pipe << std::endl;
-        return;
-    }
-    std::cout << "Listening on " << m_pipe << std::endl;
-    Glib::signal_io().connect(sigc::mem_fun(*this, &Plotter::on_read),
-                              read_fd,
-                              Glib::IOCondition::IO_IN);
-    m_io_channel = Glib::IOChannel::create_from_fd(read_fd);
+    // Listen on standard input.
+    m_io_connection = Glib::signal_io().connect(sigc::mem_fun(*this, &Plotter::on_read),
+                                                STDIN_FILENO,
+                                                Glib::IOCondition::IO_IN);
+    m_io_channel = Glib::IOChannel::create_from_fd(STDIN_FILENO);
 }
 
-Plotter::~Plotter()
+std::pair<double, double> min_max(VV const& vv)
 {
-    std::cout << "unlink " << m_pipe << std::endl;
-    unlink(m_pipe.c_str());
-}
-
-void Plotter::plot(V const& xs, V const& ys)
-{
-    m_xs = xs;
-    m_ys = ys;
-    autoscale();
+    double min = std::numeric_limits<double>::max();
+    double max = std::numeric_limits<double>::min();
+    for (auto const& v : vv)
+    {
+        auto [min_it, max_it] = std::minmax_element(v.begin(), v.end());
+        min = std::min(min, *min_it);
+        max = std::max(max, *max_it);
+    }
+    return {min, max};
 }
 
 void Plotter::autoscale()
 {
-    auto [x_min, x_max] = std::minmax_element(m_xs.begin(), m_xs.end());
-    auto [y_min, y_max] = std::minmax_element(m_ys.begin(), m_ys.end());
-    m_x_axis.set_range(*x_min, *x_max);
-    m_y_axis.set_range(*y_min, *y_max);
+    auto [x_min, x_max] = min_max(m_xs);
+    m_x_axis.set_range(x_min, x_max);
+    auto [y_min, y_max] = min_max(m_ys);
+    m_y_axis.set_range(y_min, y_max);
 }
 
 bool Plotter::on_read(Glib::IOCondition io_cond)
@@ -229,47 +221,46 @@ bool Plotter::on_read(Glib::IOCondition io_cond)
         return true;
     }
 
+    // on_read() should only be called once.
+    assert(m_xs.empty() && m_ys.empty());
     Glib::ustring line;
     Glib::IOStatus status{Glib::IO_STATUS_NORMAL};
     while (status == Glib::IO_STATUS_NORMAL)
     {
         status = m_io_channel->read_line(line);
-        std::cout << m_read_state << ' ' << line;
+        // std::cout << m_read_state << ' ' << line;
         if (line == "\n")
         {
             ++m_read_state;
+            if (m_read_state % 2 == 0)
+                m_xs.push_back(V());
+            else
+                m_ys.push_back(V());
             continue;
         }
         if (line == "start\n")
         {
             m_read_state = 0;
+            m_xs.push_back(V());
             continue;
         }
         if (line == "end\n")
         {
-            m_xs = m_read_xs;
-            m_ys = m_read_ys;
-            m_read_xs.clear();
-            m_read_ys.clear();
-            m_read_state = -1;
+            m_io_connection.disconnect();
+            close(STDIN_FILENO);
             autoscale();
             queue_draw();
             return true;
         }
-        switch (m_read_state)
+        if (m_read_state == -1)
         {
-        case -1:
-            break;
-        case 0:
-            m_read_xs.push_back(std::atof(line.c_str()));
-            break;
-        case 1:
-            m_read_ys.push_back(std::atof(line.c_str()));
-            break;
-        default:
-            // Multiple plots are not implemented yet.
-            assert(false);
+            std::cerr << "Expected 'start'\n";
+            return true;
         }
+        if (m_read_state % 2 == 0)
+            m_xs.back().push_back(std::atof(line.c_str()));
+        else
+            m_ys.back().push_back(std::atof(line.c_str()));
     }
     return true;
 }
@@ -324,31 +315,61 @@ bool Plotter::on_key_press_event(GdkEventKey* event)
 
 bool Plotter::on_button_press_event(GdkEventButton* event)
 {
-    if (event->x > m_x_axis.low_pos())
-        m_drag_start_x = event->x;
-    if (event->y < m_y_axis.low_pos())
-        m_drag_start_y = event->y;
+    // If dragging starts on an axis, put the start position on the other side of the grid
+    // so the full range in the other dimension is selected. Dragging on the x-axis only
+    // changes the x-scale, likewise for y.
+    m_drag_start_x = event->x > m_x_axis.low_pos() ? event->x : m_x_axis.high_pos();
+    m_drag_start_y = event->y < m_y_axis.low_pos() ? event->y : m_y_axis.high_pos();
+
+    m_drag_x = event->x;
+    m_drag_y = event->y;
     return true;
+}
+
+void redraw(Glib::RefPtr<Gdk::Window> window,
+            double x0, double y0, double x1, double y1, double x2, double y2)
+{
+    auto min3 = [](int a, int b, int c) {
+        return std::min(a, std::min(b, c));
+    };
+    auto max3 = [](int a, int b, int c) {
+        return std::max(a, std::max(b, c));
+    };
+    auto do_redraw = [window](int x1, int y1, int x2, int y2) {
+        // Add a pixel in each direction to account for truncation.
+        window->invalidate_rect(Gdk::Rectangle(x1-1, y1-1, x2-x1+2, y2-y1+2), false);
+    };
+    // When a corner of the zoom box is moved, we need to redraw an L-shaped region
+    // that has just been added or removed from the zoom box. First, mark the vertical
+    // part of the L...
+    do_redraw(std::min(x1, x2), min3(y0, y1, y2), std::max(x1, x2), max3(y0, y1, y2));
+    // ...then the horizontal part.
+    do_redraw(min3(x0, x1, x0), std::min(y1, y2), max3(x0, x1, x2), std::max(y1, y2));
 }
 
 bool Plotter::on_motion_notify_event(GdkEventMotion* event)
 {
     if (!m_drag_start_x && !m_drag_start_y)
         return true;
+    auto last_x{m_drag_x};
+    auto last_y{m_drag_y};
     m_drag_x = event->x;
     m_drag_y = event->y;
-    queue_draw(); // change to invalidate rect
-
+    redraw(get_window(),
+           *m_drag_start_x, *m_drag_start_y,
+           last_x, last_y,
+           m_drag_x, m_drag_y);
     return true;
 }
 
 bool Plotter::on_button_release_event(GdkEventButton* event)
 {
-    if (m_drag_start_x)
+    // Don't resize if there wasn't any motion.
+    if (m_drag_start_x && m_drag_x != *m_drag_start_x)
         m_x_axis.set_range_pixels(*m_drag_start_x, event->x);
-    if (m_drag_start_y)
+    if (m_drag_start_y && m_drag_y != *m_drag_start_y)
         m_y_axis.set_range_pixels(*m_drag_start_y, event->y);
-    queue_draw(); // change to invalidate rect
+    queue_draw();
 
     m_drag_start_x.reset();
     m_drag_start_y.reset();
@@ -382,7 +403,9 @@ bool Plotter::on_draw(Context const& cr)
         return true;
 
     draw_grid(cr, m_x_axis, m_y_axis);
-    draw_plot(cr, m_x_axis, m_y_axis, m_xs, m_ys, black, m_line_style);
+    for (std::size_t i{0}; i < m_xs.size(); ++i)
+        draw_plot(cr, m_x_axis, m_y_axis,
+                  m_xs[i], m_ys[i], colors[i % colors.size()], m_line_style);
 
     if (!m_drag_start_x && !m_drag_start_y)
         return true;
