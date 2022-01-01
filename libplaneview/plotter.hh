@@ -21,11 +21,13 @@
 #include <gtkmm.h>
 
 #include <optional>
+#include <deque>
 #include <string>
 #include <vector>
 
 /// The Cairo drawing context.
 using Context = Cairo::RefPtr<Cairo::Context>;
+/// Alias for a vector of vectors.
 using VV = std::vector<V>;
 
 enum class Line_Style
@@ -75,6 +77,30 @@ private:
     std::optional<double> m_drag_start_y{0.0};
     double m_drag_x;
     double m_drag_y;
+
+    /// Undo
+    /// @{
+    /// State information handled by the undo stack.
+    struct State
+    {
+        double x_min; ///< X-axis low range.
+        double x_max; ///< X-axis high range.
+        double y_min; ///< Y-axis low range.
+        double y_max; ///< Y-axis high range.
+    };
+    /// Add a state to the undo stack.
+    void record();
+    /// Move to the previous state in the undo stack.
+    void undo();
+    /// Move to the next state in the undo stack.
+    void redo();
+    /// Update the view to match the current position in the undo stack.
+    void update(std::deque<State>::const_iterator it);
+    /// The undo stack.
+    std::deque<State> m_history;
+    /// The current state in the history.
+    std::deque<State>::const_iterator m_now;
+    /// @}
 };
 
 #endif // PLANE_VIEW_LIBPLANEVIEW_GRID_MAP_HH_INCLUDED

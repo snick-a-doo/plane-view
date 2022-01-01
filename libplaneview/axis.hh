@@ -31,6 +31,9 @@ public:
     void set_label_pos(int pos);
     void set_range(double low, double high);
     void set_range_pixels(double low, double high);
+
+    /// @return A pair with the endpoints of the axis.
+    std::pair<double, double> get_range() const;
     int low_pos() const { return m_low_pos; }
     int high_pos() const { return m_high_pos; }
     int label_pos() const { return m_label_pos; }

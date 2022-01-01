@@ -84,6 +84,11 @@ void Axis::zoom(double factor)
     m_max = mid + dist;
 }
 
+std::pair<double, double> Axis::get_range() const
+{
+    return {m_min, m_max};
+}
+
 void Axis::set_label_pos(int pos)
 {
     m_label_pos = pos;

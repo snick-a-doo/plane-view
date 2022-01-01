@@ -179,7 +179,8 @@ void draw_plot(Context cr, Axis const& x_axis, Axis const& y_axis,
 }
 
 Plotter::Plotter(Glib::RefPtr<Gtk::Application> app)
-    : m_app(app)
+    : m_app(app),
+      m_now{m_history.end()}
 {
     set_can_focus(true);
     add_events(Gdk::KEY_PRESS_MASK | Gdk::BUTTON_PRESS_MASK | Gdk::BUTTON_RELEASE_MASK |
@@ -211,6 +212,8 @@ void Plotter::autoscale()
     m_x_axis.set_range(x_min, x_max);
     auto [y_min, y_max] = min_max(m_ys);
     m_y_axis.set_range(y_min, y_max);
+    record();
+    queue_draw();
 }
 
 bool Plotter::on_read(Glib::IOCondition io_cond)
@@ -249,7 +252,6 @@ bool Plotter::on_read(Glib::IOCondition io_cond)
             m_io_connection.disconnect();
             close(STDIN_FILENO);
             autoscale();
-            queue_draw();
             return true;
         }
         if (m_read_state == -1)
@@ -267,48 +269,46 @@ bool Plotter::on_read(Glib::IOCondition io_cond)
 
 bool Plotter::on_key_press_event(GdkEventKey* event)
 {
-    if (event->keyval == GDK_KEY_z)
-        return true;
-    else
+    // auto shift{event->state & Gdk::ModifierType::SHIFT_MASK};
+    switch (event->keyval)
     {
-        // auto shift{event->state & Gdk::ModifierType::SHIFT_MASK};
-        switch (event->keyval)
-        {
-        case GDK_KEY_a:
-            autoscale();
-            queue_draw();
-            break;
-        case GDK_KEY_Left:
-            m_x_axis.zoom(0.9);
-            m_y_axis.zoom(0.9);
-            queue_draw();
-            break;
-        case GDK_KEY_Right:
-            m_x_axis.zoom(1.1);
-            m_y_axis.zoom(1.1);
-            queue_draw();
-            break;
-        case GDK_KEY_Up:
-            break;
-        case GDK_KEY_Down:
-            break;
-        case GDK_KEY_Page_Up:
-            break;
-        case GDK_KEY_Page_Down:
-            break;
-        case GDK_KEY_space:
-            break;
-        case GDK_KEY_Tab:
-            m_line_style = Line_Style{(static_cast<int>(m_line_style) + 1)
-                % static_cast<int>(Line_Style::num)};
-            queue_draw();
-            break;
-        case GDK_KEY_q:
-            m_app->quit();
-            break;
-        default:
-            return true;
-        }
+    case GDK_KEY_a:
+        autoscale();
+        break;
+    case GDK_KEY_Left:
+        m_x_axis.zoom(0.9);
+        m_y_axis.zoom(0.9);
+        queue_draw();
+        break;
+    case GDK_KEY_Right:
+        m_x_axis.zoom(1.1);
+        m_y_axis.zoom(1.1);
+        queue_draw();
+        break;
+    case GDK_KEY_Up:
+        break;
+    case GDK_KEY_Down:
+        break;
+    case GDK_KEY_Page_Up:
+        break;
+    case GDK_KEY_Page_Down:
+        break;
+    case GDK_KEY_space:
+        break;
+    case GDK_KEY_Tab:
+        m_line_style = Line_Style{(static_cast<int>(m_line_style) + 1)
+            % static_cast<int>(Line_Style::num)};
+        queue_draw();
+        break;
+    case GDK_KEY_q:
+        m_app->quit();
+        break;
+    case GDK_KEY_y:
+        redo();
+        break;
+    case GDK_KEY_z:
+        undo();
+        break;
     }
     return true;
 }
@@ -365,10 +365,13 @@ bool Plotter::on_motion_notify_event(GdkEventMotion* event)
 bool Plotter::on_button_release_event(GdkEventButton* event)
 {
     // Don't resize if there wasn't any motion.
-    if (m_drag_start_x && m_drag_x != *m_drag_start_x)
-        m_x_axis.set_range_pixels(*m_drag_start_x, event->x);
-    if (m_drag_start_y && m_drag_y != *m_drag_start_y)
-        m_y_axis.set_range_pixels(*m_drag_start_y, event->y);
+    if (!m_drag_start_x || m_drag_x == *m_drag_start_x
+        || !m_drag_start_y || m_drag_y == *m_drag_start_y)
+        return true;
+
+    m_x_axis.set_range_pixels(*m_drag_start_x, event->x);
+    m_y_axis.set_range_pixels(*m_drag_start_y, event->y);
+    record();
     queue_draw();
 
     m_drag_start_x.reset();
@@ -423,4 +426,40 @@ bool Plotter::on_draw(Context const& cr)
     cr->fill();
 
     return true;
+}
+
+void Plotter::record()
+{
+    // Get rid of any any redo information.
+    if (m_now != m_history.end())
+        m_history.erase(std::next(m_now), m_history.end());
+
+    auto [x_min, x_max] = m_x_axis.get_range();
+    auto [y_min, y_max] = m_y_axis.get_range();
+    m_history.emplace_back(x_min, x_max, y_min, y_max);
+    m_now = std::prev(m_history.end());
+}
+
+void Plotter::undo()
+{
+    assert(!m_history.empty());
+    assert(m_now != m_history.end());
+    if (m_now != m_history.begin())
+        update(std::prev(m_now));
+}
+
+void Plotter::redo()
+{
+    assert(!m_history.empty());
+    assert(m_now != m_history.end());
+    if (std::next(m_now) != m_history.end())
+        update(std::next(m_now));
+}
+
+void Plotter::update(std::deque<State>::const_iterator it)
+{
+    m_now = it;
+    m_x_axis.set_range(m_now->x_min, m_now->x_max);
+    m_y_axis.set_range(m_now->y_min, m_now->y_max);
+    queue_draw();
 }
