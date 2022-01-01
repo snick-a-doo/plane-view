@@ -1,0 +1,10 @@
+Package: planeview
+Title: Interactive Plotting
+Version: 0.0.1
+Authors@R: 
+    person("Sam", "Varner", , "snick-a-doo@comcast.net", role = c("aut", "cre"))
+Description: What the package does (one paragraph).
+License: GPL3
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.1.2
