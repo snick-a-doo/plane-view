@@ -24,7 +24,7 @@ int main(int argc, char** argv)
     Gtk::Window window;
     Plotter plotter{app};
     window.add(plotter);
-    window.resize(500, 300);
+    window.resize(800, 600);
     plotter.show();
 
     return app->run(window);

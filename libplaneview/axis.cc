@@ -94,17 +94,25 @@ void Axis::set_label_pos(int pos)
     m_label_pos = pos;
 }
 
+std::string Axis::format(double x, int extra_prec) const
+{
+    std::ostringstream os;
+    os << std::fixed << std::setprecision(m_precision + extra_prec) << x;
+    return os.str();
+}
+
 Axis::VPoint Axis::ticks() const
 {
     VPoint ts;
-    auto [dx, x_prec] = axis_round((m_max - m_min), min_ticks);
+    auto [dx, prec] = axis_round((m_max - m_min), min_ticks);
+    m_precision = prec;
     auto low{static_cast<int>(std::ceil(m_min/dx))};
     auto high{static_cast<int>(std::floor(m_max/dx))};
     for (auto x{low}; x <= high; ++x)
     {
         std::ostringstream os;
-        os << std::fixed << std::setprecision(x_prec) << x*dx;
-        ts.emplace_back(to_pixels(x*dx), os.str());
+        os << std::fixed << std::setprecision(m_precision) << x*dx;
+        ts.emplace_back(to_pixels(x*dx), format(x*dx));
     }
     return ts;
 }

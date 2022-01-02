@@ -38,6 +38,7 @@ enum class Line_Style
     num,
 };
 
+/// A drawing area that show a graph and handles interaction.
 class Plotter : public Gtk::DrawingArea
 {
 public:
@@ -55,28 +56,37 @@ private:
     virtual bool on_draw(Context const& cr) override;
     /// @}
 
+    /// Callback for reading standard input.
     bool on_read(Glib::IOCondition io_cond);
 
+    /// Set the axes wide enough to contain all points plus padding, then redraw.
     void autoscale();
 
     /// A vector of x-value vectors, one for each trace.
-    VV m_xs;
+    VV m_xss;
     /// A vector of y-value vectors, one for each trace.
-    VV m_ys;
+    VV m_yss;
+    /// The style of points and lines on the graph.
     Line_Style m_line_style{Line_Style::points};
+    /// The horizontal axis object.
     Axis m_x_axis;
+    /// The vertical axis object.
     Axis m_y_axis;
 
-    Glib::RefPtr<Glib::IOChannel> m_io_channel;
-    sigc::connection m_io_connection;
-    int m_read_state{-1};
-
-    Glib::RefPtr<Gtk::Application> m_app;
-
+    /// The pixels where a dragging started. No value if dragging is not in progress.
     std::optional<double> m_drag_start_x{0.0};
     std::optional<double> m_drag_start_y{0.0};
+    /// The pointer position while dragging.
     double m_drag_x;
     double m_drag_y;
+
+    /// The input channel for reading data.
+    Glib::RefPtr<Glib::IOChannel> m_io_channel;
+    /// The signal handler for reading data. Disconnected when reading finishes.
+    sigc::connection m_io_connection;
+
+    /// The application object. Used for calling quit().
+    Glib::RefPtr<Gtk::Application> m_app;
 
     /// Undo
     /// @{

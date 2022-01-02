@@ -18,6 +18,7 @@
 #include <fcntl.h>
 #include <fstream>
 #include <numbers>
+#include <numeric>
 #include <stdlib.h>
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -25,6 +26,8 @@
 #include <plotter.hh>
 
 auto constexpr point_radius{3.0};
+/// The height of the gap below the x-axis labels.
+auto constexpr margin{20};
 
 struct Color
 {
@@ -37,6 +40,8 @@ struct Color
 Color constexpr black{0, 0, 0};
 Color constexpr background{225, 225, 245};
 Color constexpr white{255, 255, 255};
+Color constexpr gray{128, 128, 128};
+Color constexpr zoom{128, 128, 128, 64};
 
 std::array<Color, 8> colors{
     Color{0x66, 0xc2, 0xa5}, Color{0xfc, 0x8d, 0x62},
@@ -53,7 +58,7 @@ void set_color(Context cr, Color color)
                         color.alpha/255.0);
 }
 
-void draw_grid(Context cr, Axis const& x_axis, Axis const& y_axis)
+void draw_axes(Context cr, Axis const& x_axis, Axis const& y_axis)
 {
     auto x_ticks{x_axis.ticks()};
     auto y_ticks{y_axis.ticks()};
@@ -103,6 +108,13 @@ void draw_grid(Context cr, Axis const& x_axis, Axis const& y_axis)
         cr->line_to(x_axis.low_pos(), y.pixel);
     }
     cr->stroke();
+}
+
+void draw_grid(Context cr, Axis const& x_axis, Axis const& y_axis)
+{
+    auto x_ticks{x_axis.ticks()};
+    auto y_ticks{y_axis.ticks()};
+    assert (!x_ticks.empty() && !y_ticks.empty());
 
     // Mask off the area outside the graph.
     cr->rectangle(x_axis.low_pos(), y_axis.low_pos(),
@@ -154,28 +166,64 @@ void draw_grid(Context cr, Axis const& x_axis, Axis const& y_axis)
     cr->stroke();
 }
 
-void draw_plot(Context cr, Axis const& x_axis, Axis const& y_axis,
-           V const& xs, V const& ys, Color color, Line_Style style)
+void draw_plot(Context cr, V const& pxs, V const& pys, Color color, Line_Style style)
 {
-    assert(xs.size() == ys.size());
+    assert(pxs.size() == pys.size());
+    if (pxs.empty())
+        return;
 
     set_color(cr, color);
-    V px{x_axis.to_pixels(xs)};
-    V py{y_axis.to_pixels(ys)};
     if (style != Line_Style::points)
     {
         cr->set_line_width(1.0);
-        cr->move_to(px[0], py[0]);
-        for (std::size_t i = 1; i < px.size(); ++i)
-            cr->line_to(px[i], py[i]);
+        cr->move_to(pxs[0], pys[0]);
+        for (std::size_t i = 1; i < pxs.size(); ++i)
+            cr->line_to(pxs[i], pys[i]);
         cr->stroke();
     }
     if (style != Line_Style::lines)
-        for (std::size_t i = 0; i < px.size(); ++i)
+        for (std::size_t i = 0; i < pxs.size(); ++i)
         {
-            cr->arc(px[i], py[i], point_radius, 0.0, 2.0*std::numbers::pi);
+            cr->arc(pxs[i], pys[i], point_radius, 0.0, 2.0*std::numbers::pi);
             cr->fill();
         }
+}
+
+enum class Direction {x, y};
+
+void draw_range(Context cr, int x0, int y0, int x1, int y1,
+                std::string const& label, Direction axis)
+{
+    // Draw the range lines.
+    auto dx{axis == Direction::x ? 0 : margin/2};
+    auto dy{axis == Direction::x ? margin/2 : 0};
+    set_color(cr, gray);
+    cr->set_line_width(1.0);
+    cr->move_to(x0 - dx, y0 - dy);
+    cr->line_to(x0 + dx, y0 + dy);
+    cr->move_to(x1 - dx, y1 - dy);
+    cr->line_to(x1 + dx, y1 + dy);
+    cr->move_to(x0, y0);
+    cr->line_to(x1, y1);
+    cr->stroke();
+
+    // Draw the label.
+    auto constexpr label_pad{4};
+    Cairo::TextExtents label_ext;
+    cr->get_text_extents(label, label_ext);
+    auto label_x{axis == Direction::x
+        ? std::midpoint(x0, x1) - label_ext.width/2
+        : label_pad};
+    auto label_y{axis == Direction::x
+        ? y0 + label_ext.height/2
+        : std::midpoint(y0, y1) + label_ext.height/2};
+    cr->rectangle(label_x - label_pad, label_y - label_ext.height - label_pad,
+                  label_ext.width + 2*label_pad, label_ext.height + 2*label_pad);
+    set_color(cr, white);
+    cr->fill();
+    set_color(cr, black);
+    cr->move_to(label_x, label_y);
+    cr->show_text(label);
 }
 
 Plotter::Plotter(Glib::RefPtr<Gtk::Application> app)
@@ -208,9 +256,9 @@ std::pair<double, double> min_max(VV const& vv)
 
 void Plotter::autoscale()
 {
-    auto [x_min, x_max] = min_max(m_xs);
+    auto [x_min, x_max] = min_max(m_xss);
     m_x_axis.set_range(x_min, x_max);
-    auto [y_min, y_max] = min_max(m_ys);
+    auto [y_min, y_max] = min_max(m_yss);
     m_y_axis.set_range(y_min, y_max);
     record();
     queue_draw();
@@ -225,26 +273,27 @@ bool Plotter::on_read(Glib::IOCondition io_cond)
     }
 
     // on_read() should only be called once.
-    assert(m_xs.empty() && m_ys.empty());
+    assert(m_xss.empty() && m_yss.empty());
     Glib::ustring line;
     Glib::IOStatus status{Glib::IO_STATUS_NORMAL};
+    auto read_state{-1};
     while (status == Glib::IO_STATUS_NORMAL)
     {
         status = m_io_channel->read_line(line);
-        // std::cout << m_read_state << ' ' << line;
+        // std::cout << read_state << ' ' << line;
         if (line == "\n")
         {
-            ++m_read_state;
-            if (m_read_state % 2 == 0)
-                m_xs.push_back(V());
+            ++read_state;
+            if (read_state % 2 == 0)
+                m_xss.push_back(V());
             else
-                m_ys.push_back(V());
+                m_yss.push_back(V());
             continue;
         }
         if (line == "start\n")
         {
-            m_read_state = 0;
-            m_xs.push_back(V());
+            read_state = 0;
+            m_xss.push_back(V());
             continue;
         }
         if (line == "end\n")
@@ -254,15 +303,15 @@ bool Plotter::on_read(Glib::IOCondition io_cond)
             autoscale();
             return true;
         }
-        if (m_read_state == -1)
+        if (read_state == -1)
         {
             std::cerr << "Expected 'start'\n";
             return true;
         }
-        if (m_read_state % 2 == 0)
-            m_xs.back().push_back(std::atof(line.c_str()));
+        if (read_state % 2 == 0)
+            m_xss.back().push_back(std::atof(line.c_str()));
         else
-            m_ys.back().push_back(std::atof(line.c_str()));
+            m_yss.back().push_back(std::atof(line.c_str()));
     }
     return true;
 }
@@ -309,6 +358,12 @@ bool Plotter::on_key_press_event(GdkEventKey* event)
     case GDK_KEY_z:
         undo();
         break;
+    case GDK_KEY_Escape:
+        // Cancel any drag in progress.
+        m_drag_start_x.reset();
+        m_drag_start_y.reset();
+        queue_draw();
+        break;
     }
     return true;
 }
@@ -351,10 +406,14 @@ bool Plotter::on_motion_notify_event(GdkEventMotion* event)
 {
     if (!m_drag_start_x && !m_drag_start_y)
         return true;
+
+    auto clip = [](int x, int low, int high) {
+        return std::min(std::max(x, low), high);
+    };
     auto last_x{m_drag_x};
     auto last_y{m_drag_y};
-    m_drag_x = event->x;
-    m_drag_y = event->y;
+    m_drag_x = clip(event->x, m_x_axis.low_pos(), m_x_axis.high_pos());
+    m_drag_y = clip(event->y, m_y_axis.high_pos(), m_y_axis.low_pos());
     redraw(get_window(),
            *m_drag_start_x, *m_drag_start_y,
            last_x, last_y,
@@ -362,15 +421,15 @@ bool Plotter::on_motion_notify_event(GdkEventMotion* event)
     return true;
 }
 
-bool Plotter::on_button_release_event(GdkEventButton* event)
+bool Plotter::on_button_release_event(GdkEventButton*)
 {
     // Don't resize if there wasn't any motion.
     if (!m_drag_start_x || m_drag_x == *m_drag_start_x
         || !m_drag_start_y || m_drag_y == *m_drag_start_y)
         return true;
 
-    m_x_axis.set_range_pixels(*m_drag_start_x, event->x);
-    m_y_axis.set_range_pixels(*m_drag_start_y, event->y);
+    m_x_axis.set_range_pixels(*m_drag_start_x, m_drag_x);
+    m_y_axis.set_range_pixels(*m_drag_start_y, m_drag_y);
     record();
     queue_draw();
 
@@ -389,8 +448,8 @@ bool Plotter::on_configure_event(GdkEventConfigure* event)
     cr->get_text_extents("x", ex);
 
     m_x_axis.set_pixels(label.width + 2*ex.width, event->width - 1.5*ex.width);
-    m_x_axis.set_label_pos(event->height - ex.width);
-    m_y_axis.set_pixels(event->height - 3.5*ex.height, 1.5*ex.height);
+    m_x_axis.set_label_pos(event->height - 3*ex.width);
+    m_y_axis.set_pixels(event->height - 6*ex.height, 1.5*ex.height);
     m_y_axis.set_label_pos(ex.width);
     return true;
 }
@@ -401,30 +460,63 @@ bool Plotter::on_draw(Context const& cr)
     cr->rectangle(0, 0, get_width(), get_height());
     cr->fill();
 
-    assert(m_xs.size() == m_ys.size());
-    if (m_xs.empty())
+    assert(m_xss.size() == m_yss.size());
+    if (m_xss.empty())
         return true;
 
+    // Draw the tick marks and numbers. Do this before drawing ranges so the range and its
+    // rectangle are drawn over the axis numbers.
+    draw_axes(cr, m_x_axis, m_y_axis);
+
+    // Draw the ranges if zoom-box dragging is in progress.
+    if (m_drag_start_x)
+    {
+        auto label{m_x_axis.format(std::abs(m_x_axis.to_coord(*m_drag_start_x)
+                                            - m_x_axis.to_coord(m_drag_x)), 1)};
+        draw_range(cr, *m_drag_start_x, get_height() - margin/2,
+                   m_drag_x, get_height() - margin/2,
+                   label, Direction::x);
+        get_window()->invalidate_rect(
+            Gdk::Rectangle(0, get_height() - margin, get_width(), margin), false);
+    }
+    if (m_drag_start_y)
+    {
+        auto label{m_y_axis.format(std::abs(m_y_axis.to_coord(*m_drag_start_y)
+                                            - m_y_axis.to_coord(m_drag_y)), 1)};
+        draw_range(cr, margin/2, *m_drag_start_y, margin/2, m_drag_y,
+                   label, Direction::y);
+        Cairo::TextExtents label_ext;
+        cr->get_text_extents(label, label_ext);
+        get_window()->invalidate_rect(
+            //!! use padding constant or do inside draw_range().
+            Gdk::Rectangle(0, 0, std::max<int>(label_ext.width + 6, margin), get_height()),
+            false);
+    }
+
+    // Draw the grid lines. Drawing is clipped to the interior of the axes here and
+    // remains in effect to the end of this function.
     draw_grid(cr, m_x_axis, m_y_axis);
-    for (std::size_t i{0}; i < m_xs.size(); ++i)
-        draw_plot(cr, m_x_axis, m_y_axis,
-                  m_xs[i], m_ys[i], colors[i % colors.size()], m_line_style);
 
-    if (!m_drag_start_x && !m_drag_start_y)
-        return true;
+    // Plot the data.
+    for (std::size_t i{0}; i < m_xss.size(); ++i)
+        draw_plot(cr, m_x_axis.to_pixels(m_xss[i]), m_y_axis.to_pixels(m_yss[i]),
+                  colors[i % colors.size()], m_line_style);
 
-    set_color(cr, {128, 128, 128, 128});
-    auto x{m_drag_start_x ? *m_drag_start_x : m_x_axis.low_pos()};
-    auto y{m_drag_start_y ? *m_drag_start_y : m_y_axis.low_pos()};
-    auto width{m_drag_start_x
-        ? m_drag_x - *m_drag_start_x
-        : m_x_axis.high_pos() - m_x_axis.low_pos()};
-    auto height{m_drag_start_y
-        ? m_drag_y - *m_drag_start_y
-        : m_y_axis.high_pos() - m_y_axis.low_pos()};
-    cr->rectangle(x, y, width, height);
-    cr->fill();
-
+    // Draw the zoom box if dragging is in progress.
+    if (m_drag_start_x || m_drag_start_y)
+    {
+        set_color(cr, zoom);
+        auto x{m_drag_start_x ? *m_drag_start_x : m_x_axis.low_pos()};
+        auto y{m_drag_start_y ? *m_drag_start_y : m_y_axis.low_pos()};
+        auto width{m_drag_start_x
+            ? m_drag_x - *m_drag_start_x
+            : m_x_axis.high_pos() - m_x_axis.low_pos()};
+        auto height{m_drag_start_y
+            ? m_drag_y - *m_drag_start_y
+            : m_y_axis.high_pos() - m_y_axis.low_pos()};
+        cr->rectangle(x, y, width, height);
+        cr->fill();
+    }
     return true;
 }
 

@@ -39,7 +39,9 @@ public:
     int label_pos() const { return m_label_pos; }
     int size() const { return m_high_pos - m_low_pos; }
     V to_pixels(V const& xs) const;
+    double to_coord(double x) const;
     void zoom(double factor);
+    std::string format(double x, int extra_prec = 0) const;
 
     struct Point
     {
@@ -51,12 +53,12 @@ public:
 
 private:
     double to_pixels(double x) const;
-    double to_coord(double x) const;
     int m_low_pos{0};
     int m_high_pos{100};
     int m_label_pos{0};
     double m_min{0.0};
     double m_max{1.0};
+    mutable int m_precision{0};
 };
 
 #endif // PLANE_VIEW_LIBPLANEVIEW_AXIS_HH_INCLUDED
