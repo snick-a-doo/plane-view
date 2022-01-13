@@ -24,6 +24,7 @@ int main(int argc, char** argv)
     Gtk::Window window;
     Plotter plotter{app};
     window.add(plotter);
+    window.set_title("Plane View");
     window.resize(800, 600);
     plotter.show();
 

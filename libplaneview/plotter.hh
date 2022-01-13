@@ -1,4 +1,4 @@
-// Copyright © 2021 Sam Varner
+// Copyright © 2021-2022 Sam Varner
 //
 // This file is part of Plane View
 //
@@ -25,10 +25,17 @@
 #include <string>
 #include <vector>
 
+/// A 2D point.
+template <typename T> struct Point
+{
+    T x{0};
+    T y{0};
+};
+
 /// The Cairo drawing context.
 using Context = Cairo::RefPtr<Cairo::Context>;
 /// Alias for a vector of vectors.
-using VV = std::vector<V>;
+using VV = std::vector<std::vector<double>>;
 
 enum class Line_Style
 {
@@ -51,6 +58,7 @@ private:
     virtual bool on_button_press_event(GdkEventButton* event) override;
     virtual bool on_motion_notify_event(GdkEventMotion* event) override;
     virtual bool on_button_release_event(GdkEventButton* event) override;
+    virtual bool on_scroll_event(GdkEventScroll* event) override;
     /// Callback for size change.
     virtual bool on_configure_event(GdkEventConfigure* event) override;
     virtual bool on_draw(Context const& cr) override;
@@ -73,12 +81,15 @@ private:
     /// The vertical axis object.
     Axis m_y_axis;
 
-    /// The pixels where a dragging started. No value if dragging is not in progress.
-    std::optional<double> m_drag_start_x{0.0};
-    std::optional<double> m_drag_start_y{0.0};
-    /// The pointer position while dragging.
-    double m_drag_x;
-    double m_drag_y;
+    /// Information about a drag.
+    struct Drag
+    {
+        Point<double> start; ///< Device position where the drag started.
+        Point<double> pointer; ///< Current pointer device position.
+        bool shift{false};
+    };
+    /// The current drag operation. No value if no drag is in progress.
+    std::optional<Drag> m_drag;
 
     /// The input channel for reading data.
     Glib::RefPtr<Glib::IOChannel> m_io_channel;

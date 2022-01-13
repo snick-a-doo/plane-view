@@ -29,16 +29,42 @@ bool close(double x1, double x2, double tolerance = 1e-9)
 TEST_CASE("ticks 10")
 {
     Axis ax;
-    ax.set_pixels(0, 1000);
-    ax.set_range(1.0, 4.0);
-    auto pad{0.05*3.0};
-    auto slope{1000.0/(3.0 + 2.0*pad)};
-    auto ts{ax.ticks()};
+    ax.set_pos(0, 1000, 10);
+    ax.set_coord_range(1.0, 4.0, 0.05);
+    // [1,4] is padded to [0.85,4.15]. Not affected by rounding
+    auto [low, high] = ax.get_coord_range();
+    CHECK(low == 0.85);
+    CHECK(high == 4.15);
+    auto slope{1000.0/3.3};
+    auto ts{ax.get_ticks()};
     CHECK(ts.size() == 4);
-    CHECK(close(ts[0].pixel, slope*pad));
-    CHECK(close(ts[1].pixel - ts[0].pixel, ts[2].pixel - ts[1].pixel));
-    CHECK(close(ts[3].pixel - ts[2].pixel, ts[2].pixel - ts[1].pixel));
-    CHECK(close(ts[3].pixel, 1000 - slope*pad));
+    CHECK(close(ts[0].position, 0.15*slope));
+    CHECK(close(ts[1].position - ts[0].position, ts[2].position - ts[1].position));
+    CHECK(close(ts[3].position - ts[2].position, ts[2].position - ts[1].position));
+    CHECK(close(ts[3].position, 1000 - 0.15*slope));
+
+    CHECK(ts[0].label == "1");
+    CHECK(ts[1].label == "2");
+    CHECK(ts[2].label == "3");
+    CHECK(ts[3].label == "4");
+}
+
+TEST_CASE("ticks 10 round")
+{
+    Axis ax;
+    ax.set_pos(0, 1000, 10);
+    ax.set_coord_range(1.01234, 4.05678, 0.05);
+    // [1,4] is padded to [0.860118,4.209002] and rounded to [0.86,4.21]
+    auto [low, high] = ax.get_coord_range();
+    CHECK(low == 0.86);
+    CHECK(high == 4.21);
+    auto slope{1000.0/3.35};
+    auto ts{ax.get_ticks()};
+    CHECK(ts.size() == 4);
+    CHECK(close(ts[0].position, 0.14*slope));
+    CHECK(close(ts[1].position - ts[0].position, ts[2].position - ts[1].position));
+    CHECK(close(ts[3].position - ts[2].position, ts[2].position - ts[1].position));
+    CHECK(close(ts[3].position, 1000 - 0.21*slope));
 
     CHECK(ts[0].label == "1");
     CHECK(ts[1].label == "2");
@@ -49,9 +75,9 @@ TEST_CASE("ticks 10")
 TEST_CASE("ticks 2")
 {
     Axis ax;
-    ax.set_pixels(0, 1000);
-    ax.set_range(1.0, 8.0);
-    auto ts{ax.ticks()};
+    ax.set_pos(0, 1000, 10);
+    ax.set_coord_range(1.0, 8.0, 0.05);
+    auto ts{ax.get_ticks()};
     CHECK(ts.size() == 4);
     CHECK(ts[0].label == "2");
     CHECK(ts[1].label == "4");
@@ -62,9 +88,9 @@ TEST_CASE("ticks 2")
 TEST_CASE("ticks 2.5")
 {
     Axis ax;
-    ax.set_pixels(0, 1000);
-    ax.set_range(1.0, 10.0);
-    auto ts{ax.ticks()};
+    ax.set_pos(0, 1000, 10);
+    ax.set_coord_range(1.0, 10.0, 0.05);
+    auto ts{ax.get_ticks()};
     CHECK(ts.size() == 4);
     CHECK(ts[0].label == "2.5");
     CHECK(ts[1].label == "5.0");
@@ -75,9 +101,13 @@ TEST_CASE("ticks 2.5")
 TEST_CASE("ticks 5")
 {
     Axis ax;
-    ax.set_pixels(0, 1000);
-    ax.set_range(1.0, 20.0);
-    auto ts{ax.ticks()};
+    ax.set_pos(0, 1000, 10);
+    ax.set_coord_range(1.0, 20.0, 0.05);
+    // [1,20] is padded to [0.05,20.95]. Not affected by rounding.
+    auto [low, high] = ax.get_coord_range();
+    CHECK(low == 0.05);
+    CHECK(high == 20.95);
+    auto ts{ax.get_ticks()};
     CHECK(ts.size() == 4);
     CHECK(ts[0].label == "5");
     CHECK(ts[1].label == "10");
@@ -88,9 +118,9 @@ TEST_CASE("ticks 5")
 TEST_CASE("ticks 1")
 {
     Axis ax;
-    ax.set_pixels(0, 1000);
-    ax.set_range(1.0, 5.0);
-    auto ts{ax.ticks()};
+    ax.set_pos(0, 1000, 10);
+    ax.set_coord_range(1.0, 5.0, 0.05);
+    auto ts{ax.get_ticks()};
     CHECK(ts.size() == 5);
     CHECK(ts[0].label == "1");
     CHECK(ts[1].label == "2");
@@ -102,9 +132,12 @@ TEST_CASE("ticks 1")
 TEST_CASE("ticks small")
 {
     Axis ax;
-    ax.set_pixels(0, 1000);
-    ax.set_range(1.0, 1.01);
-    auto ts{ax.ticks()};
+    ax.set_pos(0, 1000, 10);
+    ax.set_coord_range(1.0, 1.01, 0.05);
+    auto [low, high] = ax.get_coord_range();
+    CHECK(low == 0.9995);
+    CHECK(high == 1.0105);
+    auto ts{ax.get_ticks()};
     CHECK(ts.size() == 5);
     CHECK(ts[0].label == "1.0000");
     CHECK(ts[1].label == "1.0025");
@@ -116,9 +149,9 @@ TEST_CASE("ticks small")
 TEST_CASE("ticks big")
 {
     Axis ax;
-    ax.set_pixels(0, 1000);
-    ax.set_range(200.0, 2000);
-    auto ts{ax.ticks()};
+    ax.set_pos(0, 1000, 10);
+    ax.set_coord_range(200.0, 2000, 0.05);
+    auto ts{ax.get_ticks()};
     CHECK(ts.size() == 4);
     CHECK(ts[0].label == "500");
     CHECK(ts[1].label == "1000");

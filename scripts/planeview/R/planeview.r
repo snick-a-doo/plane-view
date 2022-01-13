@@ -14,7 +14,7 @@ pvplot <- function(xss, yss) {
     data <- c('start')
     for (i in 1:length(xss))
         data <- c(data, paste(xss[[i]]), '', paste(yss[[i]]), '')
-    system2(pview.app, input=c(head(data, -1), 'end'))
+    strsplit(system2(pview.app, input=c(head(data, -1), 'end'), stdout=TRUE), split=' ')[[1]]
 }
 
 #' Plot vectors
@@ -36,17 +36,18 @@ pvplot <- function(xss, yss) {
 #' @export
 pview <- function(xs, ...) {
     call <- match.call(expand.dots = FALSE)
+    range <- character(0)
     if (is.numeric(xs)) {
         if (nargs() == 1) { # 1. Y-vector given. Generate x.
-            pvplot(list(1:length(xs)), list(xs))
+            range <- pvplot(list(1:length(xs)), list(xs))
             x.strs <- paste(1, length(xs), sep=':')
-            y.strs <- as.character(call$xs)
+            y.strs <- deparse(call$xs)
         }
         else { # 2. X-vector and 1 or more y-vector given.
             yss <- list(...)
-            pvplot(rep(list(xs), length(yss)), yss)
-            x.strs <- as.character(call$xs)
-            y.strs <- c$`...`
+            range <- pvplot(rep(list(xs), length(yss)), yss)
+            x.strs <- deparse(call$xs)
+            y.strs <- call$`...`
         }
     }
     else if (typeof(xs) == 'list') {
@@ -54,15 +55,20 @@ pview <- function(xs, ...) {
             xss <- list()
             for (ys in xs)
                 xss <- c(xss, list(1:length(xs[[1]])))
-            pvplot(xss, xs)
+            range <- pvplot(xss, xs)
         }
         else # 4. Lists of x-vectors and y-vectors given.
-            pvplot(xs, list(...)[[1]])
+            range <- pvplot(xs, list(...)[[1]])
     }
     else
         stop("Usage: Expecting 1 or more vectors or 1 or 2 lists.")
 
-    ## !!Return a ggplot command that reproduces the plot.
-    paste('ggplot() + geom_points(aes(', c$xs, ', ', c$`...`[[1]], '))')
-
+    ## Return a ggplot command that reproduces the plot.
+    ##! Not implemented for cases 3 or 4 yet.
+    cols = as.list(1 + 1:length(y.strs))
+    paste('ggplot()',
+          paste('geom_point(aes(', x.strs, ', ', y.strs, '), color=', cols, ')', sep='', collapse=' + '),
+          paste('coord_cartesian(xlim=c(', range[1], ', ', range[2],
+                '), ylim=c(', range[3], ', ', range[4], '))', sep=''),
+          sep=' + ')
 }

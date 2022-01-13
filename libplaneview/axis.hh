@@ -1,4 +1,4 @@
-// Copyright © 2021 Sam Varner
+// Copyright © 2021-2022 Sam Varner
 //
 // This file is part of Plane View
 //
@@ -16,49 +16,86 @@
 #ifndef PLANE_VIEW_LIBPLANEVIEW_AXIS_HH_INCLUDED
 #define PLANE_VIEW_LIBPLANEVIEW_AXIS_HH_INCLUDED
 
+#include <optional>
 #include <string>
 #include <vector>
 
-using V = std::vector<double>;
-
+/// An axis for a graph. Handles conversion between device coordinates and graph
+/// coordinates. Objects don't know if they are horizontal, vertical, or some other
+/// direction.
 class Axis
 {
 public:
     Axis() = default;
     ~Axis() = default;
 
-    void set_pixels(int low, int high);
-    void set_label_pos(int pos);
-    void set_range(double low, double high);
-    void set_range_pixels(double low, double high);
+    // Method and variable names use "pos" for positions in device coordinates and "coord"
+    // for position in plot coordinates. Device coordinates may be pixels, but both device
+    // and plot positions are doubles.
 
-    /// @return A pair with the endpoints of the axis.
-    std::pair<double, double> get_range() const;
-    int low_pos() const { return m_low_pos; }
-    int high_pos() const { return m_high_pos; }
-    int label_pos() const { return m_label_pos; }
-    int size() const { return m_high_pos - m_low_pos; }
-    V to_pixels(V const& xs) const;
-    double to_coord(double x) const;
-    void zoom(double factor);
+    /// Set the device positions of the ends of the axis and the tick labels. Should be
+    /// called when the graph is resized. Tick label position may be on a different
+    /// dimension from the endpoint positions. The client must keep track.
+    void set_pos(double low_pos, double high_pos, double tick_label_pos);
+
+    /// Set the coordinates of the ends of the axis. Values are padded rounded depending
+    /// on the precision of the tick labels.
+    /// @param pad_fraction The fraction of the specified range to be included below and
+    /// above the specified range.
+    void set_coord_range(double low_coord, double high_coord, double pad_fraction = 0.0);
+    /// Set the device positions of the ends of the axis. The resulting coordinate Values
+    /// are rounded depending on the precision of the tick labels.  @param pad_fraction
+    /// The fraction of the specified range to be included below and above the specified
+    /// range.
+    void set_pos_range(double low_pos, double high_pos, double pad_fraction = 0.0);
+    /// Move the endpoints keeping the span constant.
+    void move_pos_range(double delta_pos);
+    /// Multiply the range.
+    /// @param factor The range scale factor, 0 > gives a wider range -- zooms out.
+    /// @param center_pos The device position of the point that doesn't change. If not
+    /// given, the center of the axis is used.
+    void scale_range(double factor, std::optional<double> center_pos = std::nullopt);
+
+    /// @return A pair with the endpoint plot coordinates of the axis.
+    std::pair<double, double> get_coord_range() const;
+    /// @return A pair with the endpoint device positions of the axis.
+    std::pair<double, double> get_pos_range() const;
+    /// @return The device position of the tick labels.
+    double get_tick_label_pos() const { return m_tick_label_pos; }
+
+    /// Convert from device position to plot coordinates.
+    double pos_to_coord(double pos) const;
+    /// Convert from plot coordinates to device position.
+    double coord_to_pos(double coord) const;
+    /// Convert a vector of plot coordinates to a vector of device positions3.
+    std::vector<double> coord_to_pos(std::vector<double> const& coords) const;
+
+    /// Information for rendering tick marks and their labels. The client must center the
+    /// label if that's desired.
+    struct Tick
+    {
+        double position;   ///< The device position of the tick mark.
+        std::string label; ///< The formatted number to be displayed with the tick mark.
+    };
+    /// @return Information for rendering all the tick marks on the axis.
+    std::vector<Tick> get_ticks() const;
+
+    /// Format a number with a precision relative to the precision of the tick labels.
+    /// @param x The number to format.
+    /// @param extra_prec How many more digits of precision to use.
     std::string format(double x, int extra_prec = 0) const;
 
-    struct Point
-    {
-        double pixel;
-        std::string label;
-    };
-    using VPoint = std::vector<Point>;
-    VPoint ticks() const;
-
 private:
-    double to_pixels(double x) const;
-    int m_low_pos{0};
-    int m_high_pos{100};
-    int m_label_pos{0};
-    double m_min{0.0};
-    double m_max{1.0};
-    mutable int m_precision{0};
+    /// The device position of the low end of the axis.
+    double m_low_pos{0};
+    /// The device position of the high end of the axis.
+    double m_high_pos{100};
+    /// The device position of the label, possibly in a different direction.
+    double m_tick_label_pos{0};
+    /// The plot coordinate of the low end of the axis.
+    double m_low_coord{0.0};
+    /// The plot coordinate of the low end of the axis.
+    double m_high_coord{1.0};
 };
 
 #endif // PLANE_VIEW_LIBPLANEVIEW_AXIS_HH_INCLUDED
