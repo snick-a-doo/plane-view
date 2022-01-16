@@ -397,8 +397,45 @@ bool Plotter::on_read(Glib::IOCondition io_cond)
     return true;
 }
 
+void Plotter::move(double x_frac, double y_frac)
+{
+    if (mp_subrange)
+        mp_subrange->move({x_frac*mp_subrange->width(), y_frac*mp_subrange->height()}, true);
+    else
+    {
+        auto [x1, x2] = m_x_axis.get_pos_range();
+        auto [y1, y2] = m_y_axis.get_pos_range();
+        m_x_axis.move_pos_range(x_frac*std::abs(x2 - x1));
+        m_y_axis.move_pos_range(y_frac*std::abs(y2 - y1));
+    }
+    queue_draw();
+}
+
+void Plotter::scale(double x_frac, double y_frac, std::optional<Point> center = std::nullopt)
+{
+    if (mp_subrange)
+        // Scale the box instead of the range
+        mp_subrange->scale(1.0/x_frac, 1.0/y_frac, center);
+    else
+    {
+        if (center)
+        {
+            m_x_axis.scale_range(x_frac, center->x);
+            m_y_axis.scale_range(y_frac, center->y);
+        }
+        else
+        {
+            m_x_axis.scale_range(x_frac);
+            m_y_axis.scale_range(y_frac);
+        }
+    }
+    queue_draw();
+}
+
 bool Plotter::on_key_press_event(GdkEventKey* event)
 {
+    auto shift{event->state & Gdk::ModifierType::SHIFT_MASK};
+
     switch (event->keyval)
     {
     case GDK_KEY_a:
@@ -407,19 +444,23 @@ bool Plotter::on_key_press_event(GdkEventKey* event)
         break;
     case GDK_KEY_plus:
     case GDK_KEY_equal:
-        m_x_axis.scale_range(1.0/1.1);
-        m_y_axis.scale_range(1.0/1.1);
-        queue_draw();
+        scale(1.0/1.1, 1.0/1.1);
         break;
     case GDK_KEY_minus:
     case GDK_KEY_underscore:
-        m_x_axis.scale_range(1.1);
-        m_y_axis.scale_range(1.1);
-        queue_draw();
+        scale(1.1, 1.1);
+        break;
+    case GDK_KEY_Left:
+        move(shift ? -1.0 : -0.1, 0.0);
+        break;
+    case GDK_KEY_Right:
+        move(shift ? 1.0 : 0.1, 0.0);
         break;
     case GDK_KEY_Up:
+        move(0.0, shift ? -1.0 : -0.1);
         break;
     case GDK_KEY_Down:
+        move(0.0, shift ? 1.0 : 0.1);
         break;
     case GDK_KEY_Tab:
         m_line_style = Line_Style{(static_cast<int>(m_line_style) + 1)
@@ -491,7 +532,7 @@ bool Plotter::on_button_press_event(GdkEventButton* event)
     auto [y_low, y_high] = m_y_axis.get_pos_range();
     m_drag = {{event->x > x_low ? event->x : x_high, event->y < y_low ? event->y : y_high},
               {event->x, event->y},
-              bool( event->state & Gdk::ModifierType::SHIFT_MASK)};
+              bool(event->state & Gdk::ModifierType::SHIFT_MASK)};
 
     // Get retady to change the size or position of the subrange box.
     if (mp_subrange)
@@ -567,14 +608,18 @@ bool Plotter::on_button_release_event(GdkEventButton*)
 
 bool Plotter::on_scroll_event(GdkEventScroll* event)
 {
-    auto scale{event->direction == GDK_SCROLL_UP ? 1.0/1.1 : 1.1};
+    auto x_frac{event->direction == GDK_SCROLL_UP ? 1.0/1.1 : 1.1};
+    auto y_frac{x_frac};
+
     // Ctrl+wheel scales vertically only.
-    if (!(event->state & Gdk::ModifierType::CONTROL_MASK))
-        m_x_axis.scale_range(scale, event->x);
+    if (event->state & Gdk::ModifierType::CONTROL_MASK)
+        y_frac = 1.0;
     // Shift+wheel scales horizontally only.
-    if (!(event->state & Gdk::ModifierType::SHIFT_MASK))
-        m_y_axis.scale_range(scale, event->y);
+    if (event->state & Gdk::ModifierType::SHIFT_MASK)
+        x_frac = 1.0;
     // Don't record mouse wheel events for undo.
+    //!! Replace last event if it's the same kind.
+    scale(x_frac, y_frac, Point{event->x, event->y});
     queue_draw();
     return true;
 }
@@ -753,6 +798,16 @@ Point Plotter::Subrange::get_p2(Side side) const
     return Point();
 }
 
+double Plotter::Subrange::width() const
+{
+    return std::abs(m_p2.x - m_p1.x);
+}
+
+double Plotter::Subrange::height() const
+{
+    return std::abs(m_p2.y - m_p1.y);
+}
+
 bool& Plotter::Subrange::get_side(Side side)
 {
     return m_sides[static_cast<size_t>(side)];
@@ -772,10 +827,19 @@ void Plotter::Subrange::start(Point p)
             get_side(side) = within(get_p1(side), get_p2(side));
 }
 
-void Plotter::Subrange::move(Point dp)
+void Plotter::Subrange::move(Point dp, bool all)
 {
-    m_p1.x += get_side(Side::left) ? dp.x : 0;
-    m_p2.x += get_side(Side::right) ? dp.x : 0;
-    m_p1.y += get_side(Side::top) ? dp.y : 0;
-    m_p2.y += get_side(Side::bottom) ? dp.y : 0;
+    m_p1.x += all || get_side(Side::left) ? dp.x : 0;
+    m_p2.x += all || get_side(Side::right) ? dp.x : 0;
+    m_p1.y += all || get_side(Side::top) ? dp.y : 0;
+    m_p2.y += all || get_side(Side::bottom) ? dp.y : 0;
+}
+
+void Plotter::Subrange::scale(double x_frac, double y_frac, std::optional<Point> center)
+{
+    auto mid{center ? *center : Point{std::midpoint(m_p1.x, m_p2.x), std::midpoint(m_p1.y, m_p2.y)}};
+    m_p1.x = x_frac*(m_p1.x - mid.x) + mid.x;
+    m_p1.y = y_frac*(m_p1.y - mid.y) + mid.y;
+    m_p2.x = x_frac*(m_p2.x - mid.x) + mid.x;
+    m_p2.y = y_frac*(m_p2.y - mid.y) + mid.y;
 }

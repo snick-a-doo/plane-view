@@ -70,6 +70,12 @@ private:
     /// Set the axes wide enough to contain all points plus padding, then redraw.
     void autoscale();
 
+    /// Move the graph by the given fraction of the visible range. In the overview, move
+    /// the subrange.
+    void move(double x_frac, double y_frac);
+    /// Scale the graph by the given fraction. In the overview, scale the subrange.
+    void scale(double x_frac, double y_frac, std::optional<Point> center);
+
     /// A vector of x-value vectors, one for each trace.
     VV m_xss;
     /// A vector of y-value vectors, one for each trace.
@@ -98,13 +104,19 @@ private:
         /// whether the point is close to a corner or edge, or in the interior.
         void start(Point p);
         /// Move the active sides
-        void move(Point dp);
+        void move(Point dp, bool all = false);
+        /// Scale the subrange by the given fraction.
+        void scale(double x_frac, double y_frac, std::optional<Point> center);
         /// @return The upper-left corner of the range, or if a side is specified, that
         /// side's active region.
         Point get_p1(Side side = Side::none) const;
         /// @return The lower-right corner of the range, or if a side is specified, that
         /// side's active region.
         Point get_p2(Side side = Side::none) const;
+        /// @return The height of the range.
+        double height() const;
+        /// @return The width of the range.
+        double width() const;
 
     private:
         /// Access side flags with a Side enum.
