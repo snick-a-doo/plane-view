@@ -24,17 +24,17 @@ The package *planeview* provides `pview()`, which can be called in four differen
 * Mouse-wheel zooming centered on the pointer. (Not sure how to handle undo here.)
 * Drag along an axis to scale just that dimension.
 * Hold shift to push the graph around.
-
-# Planned Features
-* Display the coordinates of the point closest to the pointer.
 * Overview: Show the graph autoscaled with a box around the current range. Move the box,
   drag edges or corners to set the new range. Could be used to look at different parts of
   a plot at a consistent magnification.
+
+# Planned Features
+* Display the coordinates of the point closest to the pointer.
 * Move by pages.
-* Round off ranges to selectable precision.
+* Coarse movement with Ctrl in overview.
 
 # Not Planned
-Some things left to the ggplot2 side.
+Some things are left to the ggplot2 side.
 
 * Title and axis labels
 * Legends

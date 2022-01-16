@@ -31,6 +31,8 @@ auto constexpr point_radius{3.0};
 auto constexpr margin{20};
 /// The padding as fraction of the range to add to an autoscaled graph.
 auto constexpr autoscale_padding{0.05};
+/// The width of the adjustable border of the range box in overview mode.
+auto constexpr handle_width{20};
 
 /// An enumeration for the x and y directions.
 enum class Direction {x, y};
@@ -48,8 +50,7 @@ Color constexpr black{0, 0, 0};
 Color constexpr background{225, 225, 245};
 Color constexpr white{255, 255, 255};
 Color constexpr gray{128, 128, 128};
-/// The semi-transparent color for the zoom box.
-Color constexpr scale_range{128, 128, 128, 64};
+Color constexpr zoom_box_color{128, 128, 128, 64};
 
 /// The colors of plotted points and lines from Brewer set 2.
 std::array<Color, 8> plot_colors{
@@ -69,6 +70,22 @@ static void set_color(Context cr, Color const& color)
                         color.green/255.0,
                         color.blue/255.0,
                         color.alpha/255.0);
+}
+
+/// Draw a rectangle given two points and a color.
+/// @param p1 The upper-left corner.
+/// @param p2 The lower-right corner.
+/// @param color The fill or stroke color.
+/// @param fill If true, the rectangle is filled, otherwise it's stroked.
+static void draw_rectangle(Context cr, Point const& p1, Point const& p2,
+                           Color const& color, bool fill)
+{
+    set_color(cr, color);
+    cr->rectangle(p1.x, p1.y, p2.x - p1.x, p2.y - p1.y);
+    if (fill)
+        cr->fill();
+    else
+        cr->stroke();
 }
 
 /// Draw the axis numbers and tick marks.
@@ -247,6 +264,36 @@ void draw_range(Context cr, int x0, int y0, int x1, int y1,
     cr->show_text(label);
 }
 
+/// Mark a an L-shaped region of the screen dirty after moving a corner of a rectangle.
+/// @param p0 The position of the stationary corner, opposite the one that moved.
+/// @param p1 The previous position of the corner that moved.
+/// @param p2 The new position of the corner that moved.
+/// @param width An extra amount added to each side of the region.
+void redraw(Glib::RefPtr<Gdk::Window> window, Point p0, Point p1, Point p2, double width = 0)
+{
+    auto min3 = [](int a, int b, int c) {
+        return std::min(a, std::min(b, c));
+    };
+    auto max3 = [](int a, int b, int c) {
+        return std::max(a, std::max(b, c));
+    };
+    auto do_redraw = [window](double x1, double y1, double x2, double y2) {
+        window->invalidate_rect(Gdk::Rectangle(x1, y1, x2-x1, y2-y1), false);
+    };
+
+    // Add 2 pixels to the width to avoid fringes.
+    width += 2;
+
+    // When a corner of the zoom box is moved, we need to redraw an L-shaped region
+    // that has just been added or removed from the zoom box. First, mark the vertical
+    // part of the L...
+    do_redraw(std::min(p1.x, p2.x) - width, min3(p0.y, p1.y, p2.y) - width,
+              std::max(p1.x, p2.x) + width, max3(p0.y, p1.y, p2.y) + width);
+    // ...then the horizontal part.
+    do_redraw(min3(p0.x, p1.x, p2.x) - width, std::min(p1.y, p2.y) - width,
+              max3(p0.x, p1.x, p2.x) + width, std::max(p1.y, p2.y) + width);
+}
+
 Plotter::Plotter(Glib::RefPtr<Gtk::Application> app)
     : m_app(app),
       m_now{m_history.end()}
@@ -295,7 +342,6 @@ void Plotter::autoscale()
     auto [y_min, y_max, y_pad] = find_range(m_yss);
     m_y_axis.set_coord_range(y_min, y_max, y_pad);
 
-    record();
     queue_draw();
 }
 
@@ -335,6 +381,7 @@ bool Plotter::on_read(Glib::IOCondition io_cond)
             m_io_connection.disconnect();
             close(STDIN_FILENO);
             autoscale();
+            record();
             return true;
         }
         if (read_state == -1)
@@ -356,6 +403,7 @@ bool Plotter::on_key_press_event(GdkEventKey* event)
     {
     case GDK_KEY_a:
         autoscale();
+        record();
         break;
     case GDK_KEY_plus:
     case GDK_KEY_equal:
@@ -392,10 +440,43 @@ bool Plotter::on_key_press_event(GdkEventKey* event)
     case GDK_KEY_z:
         undo();
         break;
+    case GDK_KEY_space:
+        if (!mp_subrange)
+        {
+            // Enter overview mode. Note the current coordinate range before autoscaling.
+            auto [x1, x2] = m_x_axis.get_coord_range();
+            auto [y1, y2] = m_y_axis.get_coord_range();
+            // Change the view, but don't call record(), it's only temporary.
+            autoscale();
+            // Set the subrange to the device coordinates of the old range on the
+            // autoscaled axes.
+            mp_subrange = std::make_unique<Subrange>(
+                Point{m_x_axis.coord_to_pos(x1), m_y_axis.coord_to_pos(y2)},
+                Point{m_x_axis.coord_to_pos(x2), m_y_axis.coord_to_pos(y1)});
+        }
+        else
+        {
+            // Leave overview mode. Set the ranges according to the subrange box.
+            m_x_axis.set_pos_range(mp_subrange->get_p1().x, mp_subrange->get_p2().x);
+            m_y_axis.set_pos_range(mp_subrange->get_p2().y, mp_subrange->get_p1().y);
+            mp_subrange.reset();
+            record();
+            queue_draw();
+        }
+        break;
     case GDK_KEY_Escape:
-        // Cancel any drag in progress.
-        m_drag.reset();
-        queue_draw();
+        if (mp_subrange)
+        {
+            mp_subrange.reset();
+            // Restore the range to the last recorded state.
+            update(m_now);
+        }
+        else
+        {
+            // Cancel any drag in progress.
+            m_drag.reset();
+            queue_draw();
+        }
         break;
     }
     return true;
@@ -410,31 +491,13 @@ bool Plotter::on_button_press_event(GdkEventButton* event)
     auto [y_low, y_high] = m_y_axis.get_pos_range();
     m_drag = {{event->x > x_low ? event->x : x_high, event->y < y_low ? event->y : y_high},
               {event->x, event->y},
-              bool(event->state & Gdk::ModifierType::SHIFT_MASK)};
-    return true;
-}
+              bool( event->state & Gdk::ModifierType::SHIFT_MASK)};
 
-void redraw(Glib::RefPtr<Gdk::Window> window,
-            Point<double> p0, Point<double> p1, Point<double> p2)
-{
-    auto min3 = [](int a, int b, int c) {
-        return std::min(a, std::min(b, c));
-    };
-    auto max3 = [](int a, int b, int c) {
-        return std::max(a, std::max(b, c));
-    };
-    auto do_redraw = [window](double x1, double y1, double x2, double y2) {
-        // Add 2 pixels in each direction to avoid fringes.
-        window->invalidate_rect(Gdk::Rectangle(x1-2, y1-2, x2-x1+4, y2-y1+4), false);
-    };
-    // When a corner of the zoom box is moved, we need to redraw an L-shaped region
-    // that has just been added or removed from the zoom box. First, mark the vertical
-    // part of the L...
-    do_redraw(std::min(p1.x, p2.x), min3(p0.y, p1.y, p2.y),
-              std::max(p1.x, p2.x), max3(p0.y, p1.y, p2.y));
-    // ...then the horizontal part.
-    do_redraw(min3(p0.x, p1.x, p2.x), std::min(p1.y, p2.y),
-              max3(p0.x, p1.x, p2.x), std::max(p1.y, p2.y));
+    // Get retady to change the size or position of the subrange box.
+    if (mp_subrange)
+        mp_subrange->start({event->x, event->y});
+
+    return true;
 }
 
 bool Plotter::on_motion_notify_event(GdkEventMotion* event)
@@ -442,24 +505,40 @@ bool Plotter::on_motion_notify_event(GdkEventMotion* event)
     if (!m_drag)
         return true;
 
+    auto last{m_drag->pointer};
+
     auto clip = [](double x, double low, double high) {
         return std::min(std::max(x, low), high);
     };
-    auto last{m_drag->pointer};
     auto [x_low, x_high] = m_x_axis.get_pos_range();
     auto [y_low, y_high] = m_y_axis.get_pos_range();
-    //!! Y-limits are flipped because of the orientation of device coordinates. There's
-    //!! probably a better way to handle that.
     m_drag->pointer = {clip(event->x, x_low, x_high), clip(event->y, y_high, y_low)};
+    auto dx{m_drag->pointer.x - last.x};
+    auto dy{m_drag->pointer.y - last.y};
 
-    if (m_drag->shift)
+    if (mp_subrange)
     {
-        m_x_axis.move_pos_range(last.x - m_drag->pointer.x);
-        m_y_axis.move_pos_range(last.y - m_drag->pointer.y);
-        queue_draw();
+        auto last_p1{mp_subrange->get_p1()};
+        auto last_p2{mp_subrange->get_p2()};
+        mp_subrange->move({dx, dy});
+        auto p1{mp_subrange->get_p1()};
+        auto p2{mp_subrange->get_p2()};
+
+        // Redraw the top and left borders...
+        redraw(get_window(), last_p2, last_p1, p1, handle_width);
+        // ...then the bottom and right borders.
+        redraw(get_window(), last_p1, last_p2, p2, handle_width);
     }
     else
         redraw(get_window(), m_drag->start, last, m_drag->pointer);
+
+    // Push-pan can be done in both normal and overview modes.
+    if (m_drag->shift)
+    {
+        m_x_axis.move_pos_range(-dx);
+        m_y_axis.move_pos_range(-dy);
+        queue_draw();
+    }
     return true;
 }
 
@@ -471,14 +550,16 @@ bool Plotter::on_button_release_event(GdkEventButton*)
         || m_drag->pointer.y == m_drag->start.y)
         return true;
 
-    if (!m_drag->shift)
+    if (!mp_subrange)
     {
-        m_x_axis.set_pos_range(m_drag->start.x, m_drag->pointer.x);
-        m_y_axis.set_pos_range(m_drag->start.y, m_drag->pointer.y);
+        if (!m_drag->shift)
+        {
+            m_x_axis.set_pos_range(m_drag->start.x, m_drag->pointer.x);
+            m_y_axis.set_pos_range(m_drag->start.y, m_drag->pointer.y);
+        }
+        record();
+        queue_draw();
     }
-    record();
-    queue_draw();
-
     m_drag.reset();
 
     return true;
@@ -506,10 +587,24 @@ bool Plotter::on_configure_event(GdkEventConfigure* event)
     Cairo::TextExtents ex;
     cr->get_text_extents("x", ex);
 
+    Point p1, p2;
+    if (mp_subrange)
+    {
+        p1 = {m_x_axis.pos_to_coord(mp_subrange->get_p1().x),
+            m_y_axis.pos_to_coord(mp_subrange->get_p1().y)};
+        p2 = {m_x_axis.pos_to_coord(mp_subrange->get_p2().x),
+            m_x_axis.pos_to_coord(mp_subrange->get_p2().y)};
+    }
+
     m_x_axis.set_pos(label.width + 2*ex.width,
                      event->width - 1.5*ex.width,
                      event->height - 3*ex.width);
     m_y_axis.set_pos(event->height - 6*ex.height, 1.5*ex.height, ex.width);
+
+    if (mp_subrange)
+        mp_subrange->set({m_x_axis.coord_to_pos(p1.x), m_y_axis.coord_to_pos(p1.y)},
+                         {m_x_axis.coord_to_pos(p2.x), m_y_axis.coord_to_pos(p2.y)});
+
     return true;
 }
 
@@ -559,17 +654,21 @@ bool Plotter::on_draw(Context const& cr)
         draw_plot(cr, m_x_axis.coord_to_pos(m_xss[i]), m_y_axis.coord_to_pos(m_yss[i]),
                   plot_colors[i % plot_colors.size()], m_line_style);
 
-    // Draw the zoom box if dragging is in progress.
-    if (m_drag && !m_drag->shift)
+    // Draw the interactive range box if we're in overview mode.
+    if (mp_subrange)
     {
-        set_color(cr, scale_range);
-        auto x{m_drag->start.x};
-        auto y{m_drag->start.y};
-        auto width{m_drag->pointer.x - x};
-        auto height{m_drag->pointer.y - y};
-        cr->rectangle(x, y, width, height);
-        cr->fill();
+        // Fill the entire rectangle...
+        draw_rectangle(cr, mp_subrange->get_p1(), mp_subrange->get_p2(), zoom_box_color, true);
+        // ...then draw the handles with the same semi-transparent color to make the
+        // handles show up darker. Note that if the same color is used for the rectangle
+        // and the handles, the handles Arden't drawn when the box is the same size as the
+        // grid.
+        for (auto side : {Side::left, Side::right, Side::top, Side::bottom})
+            draw_rectangle(cr, mp_subrange->get_p1(side), mp_subrange->get_p2(side), black, false);
     }
+    // Draw the zoom box if dragging is in progress.
+    else if (m_drag && !m_drag->shift)
+        draw_rectangle(cr, m_drag->start, m_drag->pointer, zoom_box_color, true);
     return true;
 }
 
@@ -607,4 +706,76 @@ void Plotter::update(std::deque<State>::const_iterator it)
     m_x_axis.set_coord_range(m_now->x_min, m_now->x_max);
     m_y_axis.set_coord_range(m_now->y_min, m_now->y_max);
     queue_draw();
+}
+
+Plotter::Subrange::Subrange(Point p1, Point p2)
+{
+    set(p1, p2);
+}
+
+void Plotter::Subrange::set(Point p1, Point p2)
+{
+    m_p1 = p1;
+    m_p2 = p2;
+}
+
+Point Plotter::Subrange::get_p1(Side side) const
+{
+    switch (side)
+    {
+    case Side::none:
+        return m_p1;
+    case Side::left:
+    case Side::top:
+        return {m_p1.x - handle_width, m_p1.y - handle_width};
+    case Side::right:
+        return {m_p2.x - handle_width, m_p1.y - handle_width};
+    case Side::bottom:
+        return {m_p1.x - handle_width, m_p2.y - handle_width};
+    }
+    return Point();
+}
+
+Point Plotter::Subrange::get_p2(Side side) const
+{
+    switch (side)
+    {
+    case Side::none:
+        return m_p2;
+    case Side::left:
+        return {m_p1.x + handle_width, m_p2.y + handle_width};
+    case Side::top:
+        return {m_p2.x + handle_width, m_p1.y + handle_width};
+    case Side::right:
+    case Side::bottom:
+        return {m_p2.x + handle_width, m_p2.y + handle_width};
+    }
+    return Point();
+}
+
+bool& Plotter::Subrange::get_side(Side side)
+{
+    return m_sides[static_cast<size_t>(side)];
+}
+
+void Plotter::Subrange::start(Point p)
+{
+    auto within = [p](Point const& p1, Point const& p2) {
+        return p.x >= p1.x && p.x <= p2.x && p.y >= p1.y && p.y <= p2.y;
+    };
+    // Find which sides to move from the position of the pointer.
+    if (within({m_p1.x + handle_width, m_p1.y + handle_width},
+               {m_p2.x - handle_width, m_p2.y - handle_width}))
+        m_sides.fill(true);
+    else
+        for (auto side : {Side::left, Side::right, Side::top, Side::bottom})
+            get_side(side) = within(get_p1(side), get_p2(side));
+}
+
+void Plotter::Subrange::move(Point dp)
+{
+    m_p1.x += get_side(Side::left) ? dp.x : 0;
+    m_p2.x += get_side(Side::right) ? dp.x : 0;
+    m_p1.y += get_side(Side::top) ? dp.y : 0;
+    m_p2.y += get_side(Side::bottom) ? dp.y : 0;
 }

@@ -26,10 +26,10 @@
 #include <vector>
 
 /// A 2D point.
-template <typename T> struct Point
+struct Point
 {
-    T x{0};
-    T y{0};
+    double x{0};
+    double y{0};
 };
 
 /// The Cairo drawing context.
@@ -81,12 +81,50 @@ private:
     /// The vertical axis object.
     Axis m_y_axis;
 
+    enum class Side
+    {
+        left = 0, right, top, bottom, none,
+    };
+
+    /// Information about the range box in overview mode.
+    class Subrange
+    {
+    public:
+        /// Create a subrange with the given corners.
+        Subrange(Point p1, Point p2);
+        /// Change the corner positions.
+        void set(Point p1, Point p2);
+        /// Find which of the sides should change when the pointer moves depending on
+        /// whether the point is close to a corner or edge, or in the interior.
+        void start(Point p);
+        /// Move the active sides
+        void move(Point dp);
+        /// @return The upper-left corner of the range, or if a side is specified, that
+        /// side's active region.
+        Point get_p1(Side side = Side::none) const;
+        /// @return The lower-right corner of the range, or if a side is specified, that
+        /// side's active region.
+        Point get_p2(Side side = Side::none) const;
+
+    private:
+        /// Access side flags with a Side enum.
+        bool& get_side(Side side);
+        /// Flags that tell which sides of the range box are being adjusted.
+        std::array<bool, 4> m_sides{false, false, false, false};
+        /// The upper-left corner of the range in device coordinates.
+        Point m_p1;
+        /// The lower-right corner of the range in device coordinates.
+        Point m_p2;
+    };
+    /// The active subrange in overview mode or nullptr.
+    std::unique_ptr<Subrange> mp_subrange;
+
     /// Information about a drag.
     struct Drag
     {
-        Point<double> start; ///< Device position where the drag started.
-        Point<double> pointer; ///< Current pointer device position.
-        bool shift{false};
+        Point start; ///< Device position where the drag started.
+        Point pointer; ///< Current pointer device position.
+        bool shift{false}; ///< True if the shift key is pressed.
     };
     /// The current drag operation. No value if no drag is in progress.
     std::optional<Drag> m_drag;
