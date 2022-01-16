@@ -27,10 +27,10 @@ The package *planeview* provides `pview()`, which can be called in four differen
 * Overview: Show the graph autoscaled with a box around the current range. Move the box,
   drag edges or corners to set the new range. Could be used to look at different parts of
   a plot at a consistent magnification.
+* Move by pages.
 
 # Planned Features
 * Display the coordinates of the point closest to the pointer.
-* Move by pages.
 * Coarse movement with Ctrl in overview.
 
 # Not Planned

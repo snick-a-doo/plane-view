@@ -158,9 +158,14 @@ private:
         double x_max; ///< X-axis high range.
         double y_min; ///< Y-axis low range.
         double y_max; ///< Y-axis high range.
+        bool incremental; ///< True for incremental changes.
+        // Generate comparison operators.
+        auto operator <=>(State const& state) const = default;
     };
     /// Add a state to the undo stack.
-    void record();
+    /// @param incremental If true, the state is an incremental change. If the previous
+    /// state was incremental, it will be overwritten.
+    void record(bool incremental);
     /// Move to the previous state in the undo stack.
     void undo();
     /// Move to the next state in the undo stack.

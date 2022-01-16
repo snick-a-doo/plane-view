@@ -381,7 +381,7 @@ bool Plotter::on_read(Glib::IOCondition io_cond)
             m_io_connection.disconnect();
             close(STDIN_FILENO);
             autoscale();
-            record();
+            record(false);
             return true;
         }
         if (read_state == -1)
@@ -440,27 +440,33 @@ bool Plotter::on_key_press_event(GdkEventKey* event)
     {
     case GDK_KEY_a:
         autoscale();
-        record();
+        record(false);
         break;
     case GDK_KEY_plus:
     case GDK_KEY_equal:
         scale(1.0/1.1, 1.0/1.1);
+        record(true);
         break;
     case GDK_KEY_minus:
     case GDK_KEY_underscore:
         scale(1.1, 1.1);
+        record(true);
         break;
     case GDK_KEY_Left:
         move(shift ? -1.0 : -0.1, 0.0);
+        record(true);
         break;
     case GDK_KEY_Right:
         move(shift ? 1.0 : 0.1, 0.0);
+        record(true);
         break;
     case GDK_KEY_Up:
         move(0.0, shift ? -1.0 : -0.1);
+        record(true);
         break;
     case GDK_KEY_Down:
         move(0.0, shift ? 1.0 : 0.1);
+        record(true);
         break;
     case GDK_KEY_Tab:
         m_line_style = Line_Style{(static_cast<int>(m_line_style) + 1)
@@ -501,7 +507,7 @@ bool Plotter::on_key_press_event(GdkEventKey* event)
             m_x_axis.set_pos_range(mp_subrange->get_p1().x, mp_subrange->get_p2().x);
             m_y_axis.set_pos_range(mp_subrange->get_p2().y, mp_subrange->get_p1().y);
             mp_subrange.reset();
-            record();
+            record(false);
             queue_draw();
         }
         break;
@@ -598,7 +604,7 @@ bool Plotter::on_button_release_event(GdkEventButton*)
             m_x_axis.set_pos_range(m_drag->start.x, m_drag->pointer.x);
             m_y_axis.set_pos_range(m_drag->start.y, m_drag->pointer.y);
         }
-        record();
+        record(false);
         queue_draw();
     }
     m_drag.reset();
@@ -620,6 +626,7 @@ bool Plotter::on_scroll_event(GdkEventScroll* event)
     // Don't record mouse wheel events for undo.
     //!! Replace last event if it's the same kind.
     scale(x_frac, y_frac, Point{event->x, event->y});
+    record(true);
     queue_draw();
     return true;
 }
@@ -666,6 +673,17 @@ bool Plotter::on_draw(Context const& cr)
     // Draw the tick marks and numbers. Do this before drawing ranges so the range and its
     // rectangle are drawn over the axis numbers.
     draw_axes(cr, m_x_axis, m_y_axis);
+
+    // Show the current undo frame and the total number of frames.
+    {
+        std::ostringstream os;
+        os << std::distance(m_history.cbegin(), m_now) + 1 << '/' << m_history.size();
+        set_color(cr, black);
+        auto x{4};
+        auto y{get_height() - 4};
+        cr->move_to(x, y);
+        cr->show_text(os.str());
+    }
 
     // Draw the ranges if zoom-box dragging is in progress.
     if (m_drag)
@@ -717,7 +735,7 @@ bool Plotter::on_draw(Context const& cr)
     return true;
 }
 
-void Plotter::record()
+void Plotter::record(bool incremental)
 {
     // Get rid of any any redo information.
     if (m_now != m_history.end())
@@ -725,7 +743,17 @@ void Plotter::record()
 
     auto [x_min, x_max] = m_x_axis.get_coord_range();
     auto [y_min, y_max] = m_y_axis.get_coord_range();
-    m_history.emplace_back(x_min, x_max, y_min, y_max);
+
+    State new_state(x_min, x_max, y_min, y_max, incremental);
+    // Don't record duplicate states. E.g. autoscale after autoscale.
+    if (!m_history.empty() && new_state == m_history.back())
+        return;
+    // Only record the last in a string of incremental changes. E.g. keyboard or mouse
+    // wheel scale changes.
+    if (!m_history.empty() && m_history.back().incremental == incremental)
+        m_history.back() = new_state;
+    else
+        m_history.push_back(new_state);
     m_now = std::prev(m_history.end());
 }
 
