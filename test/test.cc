@@ -158,3 +158,54 @@ TEST_CASE("ticks big")
     CHECK(ts[2].label == "1500");
     CHECK(ts[3].label == "2000");
 }
+
+TEST_CASE("closest")
+{
+    Axis xax;
+    xax.set_pos(100, 1000, 10);
+    xax.set_coord_range(20, 40);
+    Axis yax;
+    yax.set_pos(200, 2, 10);
+    yax.set_coord_range(-20, 80);
+
+    SUBCASE("empty")
+    {
+        V xs;
+        V ys;
+        CHECK(!find_closest_point({200, 100}, xs, ys, xax, yax));
+    }
+    SUBCASE("one below range")
+    {
+        V xs{10};
+        V ys{1};
+        CHECK(!find_closest_point({200, 100}, xs, ys, xax, yax));
+    }
+    SUBCASE("one in range")
+    {
+        V xs{30};
+        V ys{1};
+        CHECK(!find_closest_point({0, 0}, xs, ys, xax, yax));
+        CHECK(!find_closest_point({0, 100}, xs, ys, xax, yax));
+        auto p{find_closest_point({200, 100}, xs, ys, xax, yax)};
+        CHECK(p);
+        CHECK(*p == Point(30, 1));
+        p = find_closest_point({900, 100}, xs, ys, xax, yax);
+        CHECK(p);
+        CHECK(*p == Point(30, 1));
+        CHECK(!find_closest_point({1001, 100}, xs, ys, xax, yax));
+    }
+    SUBCASE("two in range")
+    {
+        V xs{0, 15, 30, 45};
+        V ys{20, 20, 20, 20};
+        auto p{find_closest_point({101, 10}, xs, ys, xax, yax)};
+        CHECK(p);
+        CHECK(*p == Point(15, 20));
+        p = find_closest_point({500, 10}, xs, ys, xax, yax);
+        CHECK(p);
+        CHECK(*p == Point(30, 20));
+        p = find_closest_point({900, 10}, xs, ys, xax, yax);
+        CHECK(p);
+        CHECK(*p == Point(45, 20));
+    }
+}

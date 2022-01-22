@@ -103,6 +103,18 @@ void Axis::scale_range(double factor, std::optional<double> center_pos)
     set_coord_range(factor*(m_low_coord - mid) + mid, factor*(m_high_coord - mid) + mid);
 }
 
+bool Axis::is_in_pos_range(double pos) const
+{
+    // Compare in a way doesn't care which endpoint is higher.
+    return (m_low_pos <= pos) == (pos <= m_high_pos);
+}
+
+bool Axis::is_in_coord_range(double coord) const
+{
+    // Compare in a way doesn't care which endpoint is higher.
+    return (m_low_coord <= coord) == (coord <= m_high_coord);
+}
+
 std::pair<double, double> Axis::get_coord_range() const
 {
     return {m_low_coord, m_high_coord};
@@ -111,6 +123,11 @@ std::pair<double, double> Axis::get_coord_range() const
 std::pair<double, double> Axis::get_pos_range() const
 {
     return {m_low_pos, m_high_pos};
+}
+
+double Axis::get_tick_label_pos() const
+{
+    return m_tick_label_pos;
 }
 
 double Axis::pos_to_coord(double pos) const

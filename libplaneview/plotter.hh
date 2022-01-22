@@ -30,12 +30,17 @@ struct Point
 {
     double x{0};
     double y{0};
+    // Generate comparison operators.
+    auto operator <=>(Point const& point) const = default;
 };
+std::ostream& operator<<(std::ostream& os, Point const& p);
 
 /// The Cairo drawing context.
 using Context = Cairo::RefPtr<Cairo::Context>;
-/// Alias for a vector of vectors.
-using VV = std::vector<std::vector<double>>;
+/// Alias for a vector of doubles.
+using V = std::vector<double>;
+/// Alias for a vector of vectors of doubles.
+using VV = std::vector<V>;
 
 enum class Line_Style
 {
@@ -44,6 +49,11 @@ enum class Line_Style
     lines_and_points,
     num,
 };
+
+/// @return The plot coordinates of the data point that is plotted closest to the
+/// device-coordinate point p.
+std::optional<Point> find_closest_point(Point const& p, V const& xs, V const& ys,
+                                        Axis const& x_axis, Axis const& y_axis);
 
 /// A drawing area that show a graph and handles interaction.
 class Plotter : public Gtk::DrawingArea
@@ -140,6 +150,9 @@ private:
     };
     /// The current drag operation. No value if no drag is in progress.
     std::optional<Drag> m_drag;
+    /// The coordinates of the data point that's closest to pointer. No value if it hasn't
+    /// been requested or it was discarded.
+    std::optional<Point> m_closest_point;
 
     /// The input channel for reading data.
     Glib::RefPtr<Glib::IOChannel> m_io_channel;

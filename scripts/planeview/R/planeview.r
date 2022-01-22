@@ -70,5 +70,6 @@ pview <- function(xs, ...) {
           paste('geom_point(aes(', x.strs, ', ', y.strs, '), color=', cols, ')', sep='', collapse=' + '),
           paste('coord_cartesian(xlim=c(', range[1], ', ', range[2],
                 '), ylim=c(', range[3], ', ', range[4], '))', sep=''),
+          "labs(x='', y='')",
           sep=' + ')
 }

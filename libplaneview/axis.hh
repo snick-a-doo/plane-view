@@ -56,12 +56,17 @@ public:
     /// given, the center of the axis is used.
     void scale_range(double factor, std::optional<double> center_pos = std::nullopt);
 
+    /// @return True if the passed-in device position is in the range of the positions
+    /// spanned by the axis.
+    bool is_in_pos_range(double pos) const;
+    /// @return True if the passed-in plot coordinate is in the range of the axis.
+    bool is_in_coord_range(double coord) const;
     /// @return A pair with the endpoint plot coordinates of the axis.
     std::pair<double, double> get_coord_range() const;
     /// @return A pair with the endpoint device positions of the axis.
     std::pair<double, double> get_pos_range() const;
     /// @return The device position of the tick labels.
-    double get_tick_label_pos() const { return m_tick_label_pos; }
+    double get_tick_label_pos() const;
 
     /// Convert from device position to plot coordinates.
     double pos_to_coord(double pos) const;

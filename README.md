@@ -28,9 +28,9 @@ The package *planeview* provides `pview()`, which can be called in four differen
   drag edges or corners to set the new range. Could be used to look at different parts of
   a plot at a consistent magnification.
 * Move by pages.
+* Display the coordinates of the point closest to the pointer.
 
 # Planned Features
-* Display the coordinates of the point closest to the pointer.
 * Coarse movement with Ctrl in overview.
 
 # Not Planned

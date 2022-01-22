@@ -17,6 +17,7 @@
 #include <fcntl.h>
 #include <fstream>
 #include <iostream>
+#include <iomanip>
 #include <numbers>
 #include <numeric>
 #include <stdlib.h>
@@ -28,6 +29,7 @@
 /// The size of a plotted point.
 auto constexpr point_radius{3.0};
 /// The height of the gap below the x-axis labels.
+//!! Parameterize axis positions and range bars.
 auto constexpr margin{20};
 /// The padding as fraction of the range to add to an autoscaled graph.
 auto constexpr autoscale_padding{0.05};
@@ -36,6 +38,17 @@ auto constexpr handle_width{20};
 
 /// An enumeration for the x and y directions.
 enum class Direction {x, y};
+
+std::ostream& operator<<(std::ostream& os, Point const& p)
+{
+    return os << p.x << ", " << p.y;
+}
+
+/// @return The argument restricted to the given range.
+double clip(double x, double low, double high)
+{
+    return std::min(std::max(x, low), high);
+};
 
 /// RGBA color struct.
 struct Color
@@ -53,6 +66,7 @@ Color constexpr gray{128, 128, 128};
 Color constexpr zoom_box_color{128, 128, 128, 64};
 
 /// The colors of plotted points and lines from Brewer set 2.
+//!! Change to match ggplot2 defaults.
 std::array<Color, 8> plot_colors{
     Color{0x66, 0xc2, 0xa5}, Color{0xfc, 0x8d, 0x62},
     Color{0x8d, 0xa0, 0xcb}, Color{0xe7, 0x8a, 0xc3},
@@ -205,10 +219,10 @@ static void draw_grid(Context cr, Axis const& x_axis, Axis const& y_axis)
 /// Draw the data points and lines.
 static void draw_plot(Context cr,
                       std::vector<double> const& pxs, std::vector<double> const& pys,
-                      Color color, Line_Style style)
+                      Color color, Line_Style style, std::optional<Point> point)
 {
-    assert(pxs.size() == pys.size());
-    if (pxs.empty())
+    auto N{std::min(pxs.size(), pys.size())};
+    if (N == 0)
         return;
 
     set_color(cr, color);
@@ -216,16 +230,26 @@ static void draw_plot(Context cr,
     {
         cr->set_line_width(1.0);
         cr->move_to(pxs[0], pys[0]);
-        for (std::size_t i = 1; i < pxs.size(); ++i)
+        for (std::size_t i = 1; i < N; ++i)
             cr->line_to(pxs[i], pys[i]);
         cr->stroke();
     }
     if (style != Line_Style::lines)
-        for (std::size_t i = 0; i < pxs.size(); ++i)
+        for (std::size_t i = 0; i < N; ++i)
         {
             cr->arc(pxs[i], pys[i], point_radius, 0.0, 2.0*std::numbers::pi);
             cr->fill();
         }
+    if (point)
+    {
+        // Draw crosshairs on the passed-in point.
+        set_color(cr, black);
+        cr->move_to(point->x - 4*point_radius, point->y);
+        cr->line_to(point->x + 4*point_radius, point->y);
+        cr->move_to(point->x, point->y - 4*point_radius);
+        cr->line_to(point->x, point->y + 4*point_radius);
+        cr->stroke();
+    }
 }
 
 /// Draw range bars in the margin.
@@ -233,6 +257,7 @@ void draw_range(Context cr, int x0, int y0, int x1, int y1,
                 std::string const& label, Direction axis)
 {
     // Draw the range lines.
+    //!! Parameterize axis positions and range bars.
     auto dx{axis == Direction::x ? 0 : margin/2};
     auto dy{axis == Direction::x ? margin/2 : 0};
     set_color(cr, gray);
@@ -300,7 +325,7 @@ Plotter::Plotter(Glib::RefPtr<Gtk::Application> app)
 {
     set_can_focus(true);
     add_events(Gdk::KEY_PRESS_MASK | Gdk::BUTTON_PRESS_MASK | Gdk::BUTTON_RELEASE_MASK |
-               Gdk::BUTTON1_MOTION_MASK | Gdk::SCROLL_MASK | Gdk::STRUCTURE_MASK);
+               Gdk::POINTER_MOTION_MASK | Gdk::SCROLL_MASK | Gdk::STRUCTURE_MASK);
 
     // Listen on standard input.
     m_io_connection = Glib::signal_io().connect(sigc::mem_fun(*this, &Plotter::on_read),
@@ -522,6 +547,8 @@ bool Plotter::on_key_press_event(GdkEventKey* event)
         {
             // Cancel any drag in progress.
             m_drag.reset();
+            // Stop displaying the closest point.
+            m_closest_point.reset();
             queue_draw();
         }
         break;
@@ -547,16 +574,98 @@ bool Plotter::on_button_press_event(GdkEventButton* event)
     return true;
 }
 
+
+std::optional<Point> find_closest_point(Point const& p, V const& xs, V const& ys,
+                                        Axis const& x_axis, Axis const& y_axis)
+{
+    // Ignore the point if it's outside the axes.
+    if (!x_axis.is_in_pos_range(p.x) || !y_axis.is_in_pos_range(p.y))
+        return std::nullopt;
+    if (xs.empty() || ys.empty())
+        return std::nullopt;
+
+    // We want the point that appears closest to the pointer on the screen. Measure
+    // distances in device coordinates.
+
+    // Start with the 1st point whose x-position is not less than p.x. Use data
+    // coordinates so we only have to convert the pointer position. That's okay because
+    // we're only looking at the x-dimension.
+    auto px{x_axis.pos_to_coord(p.x)};
+    // Try 1st x that's greater than or equal to the point.
+    auto it = std::find_if(xs.begin(), xs.end(), [px](double x) { return x >= px; });
+    // If there's no such x, or it's off the graph, try the previous.
+    if ((it == xs.end() || !x_axis.is_in_coord_range(*it)) && it != xs.begin())
+        --it;
+    // Give up if there's still no candidate.
+    if (it == xs.end() || !x_axis.is_in_coord_range(*it))
+        return std::nullopt;
+
+    auto distance = [&](double dx, double y) {
+        auto dy{y_axis.coord_to_pos(y) - p.y};
+        return std::sqrt(dx*dx + dy*dy);
+    };
+
+    // Go through the x-values in order of closeness to the pointer in the
+    // x-direction. Udate min_index when a closer point is found.
+    std::size_t min_index{static_cast<std::size_t>(std::distance(xs.begin(), it))};
+    std::size_t left{min_index - 1};
+    std::size_t right{min_index};
+    std::size_t const last{xs.size() - 1};
+    bool do_left{min_index > 0};
+    bool do_right{true};
+    auto left_pos{x_axis.coord_to_pos(xs[left])};
+    auto left_dist{p.x - left_pos};
+    auto right_pos{x_axis.coord_to_pos(xs[right])};
+    auto right_dist{right_pos - p.x};
+    auto const [axis_left, axis_right] = x_axis.get_pos_range();
+    double min_dist{std::numeric_limits<double>::max()};
+
+    while (do_left || do_right)
+    {
+        for (; do_left && (!do_right || left_dist <= right_dist); --left)
+        {
+            left_pos = x_axis.coord_to_pos(xs[left]);
+            left_dist = p.x - left_pos;
+            auto d2{distance(left_dist, ys[left])};
+            if (d2 < min_dist)
+            {
+                min_dist = d2;
+                min_index = left;
+            }
+            if (left_dist > min_dist || left == 0 || left_pos < axis_left)
+                do_left = false;
+        }
+        for (; do_right && (!do_left || right_dist <= left_dist); ++right)
+        {
+            right_pos = x_axis.coord_to_pos(xs[right]);
+            right_dist = right_pos - p.x;
+            auto d2{distance(right_dist, ys[right])};
+            if (d2 < min_dist)
+            {
+                min_dist = d2;
+                min_index = right;
+            }
+            if (right_dist > min_dist || right == last || right_pos > axis_right)
+                do_right = false;
+        }
+    }
+    assert(min_index < xs.size());
+    return Point{xs[min_index], ys[min_index]};
+}
+
 bool Plotter::on_motion_notify_event(GdkEventMotion* event)
 {
+    if (event->state & Gdk::ModifierType::SHIFT_MASK)
+    m_closest_point = find_closest_point({event->x, event->y}, m_xss[0], m_yss[0],
+                                         m_x_axis, m_y_axis);
+    if (m_closest_point)
+        queue_draw();
+
     if (!m_drag)
         return true;
 
     auto last{m_drag->pointer};
 
-    auto clip = [](double x, double low, double high) {
-        return std::min(std::max(x, low), high);
-    };
     auto [x_low, x_high] = m_x_axis.get_pos_range();
     auto [y_low, y_high] = m_y_axis.get_pos_range();
     m_drag->pointer = {clip(event->x, x_low, x_high), clip(event->y, y_high, y_low)};
@@ -648,10 +757,13 @@ bool Plotter::on_configure_event(GdkEventConfigure* event)
             m_x_axis.pos_to_coord(mp_subrange->get_p2().y)};
     }
 
+    //!! Parameterize axis positions and range bars.
+    auto x_margin{5*ex.width};
+    auto y_low{x_margin + 3*ex.width};
     m_x_axis.set_pos(label.width + 2*ex.width,
                      event->width - 1.5*ex.width,
-                     event->height - 3*ex.width);
-    m_y_axis.set_pos(event->height - 6*ex.height, 1.5*ex.height, ex.width);
+                     event->height - x_margin);
+    m_y_axis.set_pos(event->height - y_low, 1.5*ex.height, ex.width);
 
     if (mp_subrange)
         mp_subrange->set({m_x_axis.coord_to_pos(p1.x), m_y_axis.coord_to_pos(p1.y)},
@@ -679,10 +791,27 @@ bool Plotter::on_draw(Context const& cr)
         std::ostringstream os;
         os << std::distance(m_history.cbegin(), m_now) + 1 << '/' << m_history.size();
         set_color(cr, black);
-        auto x{4};
-        auto y{get_height() - 4};
-        cr->move_to(x, y);
+        cr->move_to(4, get_height() - 4);
         cr->show_text(os.str());
+    }
+    if (m_closest_point
+        && m_x_axis.is_in_coord_range(m_closest_point->x)
+        && m_y_axis.is_in_coord_range(m_closest_point->y))
+    {
+        std::ostringstream os;
+        os << std::setprecision(10) << *m_closest_point;
+        Cairo::Matrix font_mat;
+        cr->get_font_matrix(font_mat);
+        cr->set_font_size(20.0);
+        set_color(cr, black);
+        Cairo::TextExtents point_ext;
+        cr->get_text_extents(os.str(), point_ext);
+        auto [low, high] = m_x_axis.get_pos_range();
+        cr->move_to(clip(m_x_axis.coord_to_pos(m_closest_point->x) - 0.5*point_ext.width,
+                         low, high - point_ext.width),
+                    get_height() - 4);
+        cr->show_text(os.str());
+        cr->set_font_matrix(font_mat);
     }
 
     // Draw the ranges if zoom-box dragging is in progress.
@@ -690,6 +819,7 @@ bool Plotter::on_draw(Context const& cr)
     {
         auto label{m_x_axis.format(std::abs(m_x_axis.pos_to_coord(m_drag->start.x)
                                             - m_x_axis.pos_to_coord(m_drag->pointer.x)), 1)};
+        //!! Parameterize axis positions and range bars.
         draw_range(cr, m_drag->start.x, get_height() - margin/2,
                    m_drag->pointer.x, get_height() - margin/2,
                    label, Direction::x);
@@ -713,9 +843,13 @@ bool Plotter::on_draw(Context const& cr)
     draw_grid(cr, m_x_axis, m_y_axis);
 
     // Plot the data.
+    std::optional<Point> closest_pos;
+    if (m_closest_point)
+        closest_pos = Point{m_x_axis.coord_to_pos(m_closest_point->x),
+            m_y_axis.coord_to_pos(m_closest_point->y)};
     for (std::size_t i{0}; i < m_xss.size(); ++i)
         draw_plot(cr, m_x_axis.coord_to_pos(m_xss[i]), m_y_axis.coord_to_pos(m_yss[i]),
-                  plot_colors[i % plot_colors.size()], m_line_style);
+                  plot_colors[i % plot_colors.size()], m_line_style, closest_pos);
 
     // Draw the interactive range box if we're in overview mode.
     if (mp_subrange)
@@ -750,7 +884,7 @@ void Plotter::record(bool incremental)
         return;
     // Only record the last in a string of incremental changes. E.g. keyboard or mouse
     // wheel scale changes.
-    if (!m_history.empty() && m_history.back().incremental == incremental)
+    if (!m_history.empty() && m_history.back().incremental && incremental)
         m_history.back() = new_state;
     else
         m_history.push_back(new_state);
