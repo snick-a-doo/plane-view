@@ -55,3 +55,4 @@ Here's an example session. The pview() call returns a ggplot call as a a string.
 
 ![ggplot of the selected range](examples/ggplot-range.png)
 
+

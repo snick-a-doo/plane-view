@@ -36,7 +36,7 @@ public:
     /// Set the device positions of the ends of the axis and the tick labels. Should be
     /// called when the graph is resized. Tick label position may be on a different
     /// dimension from the endpoint positions. The client must keep track.
-    void set_pos(double low_pos, double high_pos, double tick_label_pos);
+    void set_pos(double low_pos, double high_pos);
 
     /// Set the coordinates of the ends of the axis. Values are padded rounded depending
     /// on the precision of the tick labels.
@@ -44,12 +44,13 @@ public:
     /// above the specified range.
     void set_coord_range(double low_coord, double high_coord, double pad_fraction = 0.0);
     /// Set the device positions of the ends of the axis. The resulting coordinate Values
-    /// are rounded depending on the precision of the tick labels.  @param pad_fraction
-    /// The fraction of the specified range to be included below and above the specified
-    /// range.
-    void set_pos_range(double low_pos, double high_pos, double pad_fraction = 0.0);
-    /// Move the endpoints keeping the span constant.
-    void move_pos_range(double delta_pos);
+    /// are rounded depending on the precision of the tick labels.
+    /// @param pad_fraction The fraction of the specified range to be included below and
+    /// above the specified range.
+    void set_coord_range_by_pos(double low_pos, double high_pos, double pad_fraction = 0.0);
+    /// Move the coordinate range by an amount that corresponds to the given position
+    /// change.
+    void move_coord_range_by_pos(double delta_pos);
     /// Multiply the range.
     /// @param factor The range scale factor, 0 > gives a wider range -- zooms out.
     /// @param center_pos The device position of the point that doesn't change. If not
@@ -65,8 +66,6 @@ public:
     std::pair<double, double> get_coord_range() const;
     /// @return A pair with the endpoint device positions of the axis.
     std::pair<double, double> get_pos_range() const;
-    /// @return The device position of the tick labels.
-    double get_tick_label_pos() const;
 
     /// Convert from device position to plot coordinates.
     double pos_to_coord(double pos) const;
@@ -80,7 +79,9 @@ public:
     struct Tick
     {
         double position;   ///< The device position of the tick mark.
-        std::string label; ///< The formatted number to be displayed with the tick mark.
+        /// For major ticks, the formatted number to be displayed with the mark. No value
+        /// for minor ticks.
+        std::optional<std::string> label;
     };
     /// @return Information for rendering all the tick marks on the axis.
     std::vector<Tick> get_ticks() const;
@@ -89,14 +90,13 @@ public:
     /// @param x The number to format.
     /// @param extra_prec How many more digits of precision to use.
     std::string format(double x, int extra_prec = 0) const;
+    double round(double pos, int extra_prec = 0) const;
 
 private:
     /// The device position of the low end of the axis.
     double m_low_pos{0};
     /// The device position of the high end of the axis.
     double m_high_pos{100};
-    /// The device position of the label, possibly in a different direction.
-    double m_tick_label_pos{0};
     /// The plot coordinate of the low end of the axis.
     double m_low_coord{0.0};
     /// The plot coordinate of the low end of the axis.
