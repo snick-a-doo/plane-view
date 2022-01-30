@@ -21,6 +21,10 @@
 #include <numeric>
 #include <sstream>
 
+#if __cplusplus < 202000L
+#include "compat-cpp-20.hh"
+#endif
+
 const int min_ticks{4};
 
 // Given the range of an axis and the minimum number of tick marks, return a rounded
@@ -98,7 +102,11 @@ void Axis::scale_range(double factor, std::optional<double> center_pos)
 {
     auto mid{center_pos
         ? pos_to_coord(*center_pos)
+#if __cplusplus < 202000L
+        : compat::midpoint(m_low_coord, m_high_coord)};
+#else
         : std::midpoint(m_low_coord, m_high_coord)};
+#endif
     set_coord_range(factor*(m_low_coord - mid) + mid, factor*(m_high_coord - mid) + mid);
 }
 

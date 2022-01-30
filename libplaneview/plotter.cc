@@ -24,12 +24,17 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 
-#include <plotter.hh>
+#include "plotter.hh"
+
+#if __cplusplus < 202000L
+#include "compat-cpp-20.hh"
+#endif
 
 /// The width of the border around the grid opposite the axes.
 auto constexpr border_width{6.0};
 /// The length of the tick marks outside of the grid.
 auto constexpr tick_length{4.0};
+/// The font size for tick labels.
 auto constexpr text_size{10.0};
 /// The size of the coordinates of the point near the pointer.
 auto constexpr closest_point_text_size{18.0};
@@ -197,7 +202,12 @@ static void draw_plot(Context cr,
     if (style != Line_Style::lines)
         for (std::size_t i = 0; i < N; ++i)
         {
-            cr->arc(pxs[i], pys[i], point_radius, 0.0, 2.0*std::numbers::pi);
+#if __cplusplus < 202000L
+            using compat::numbers::pi;
+#else
+            using std::numbers::pi;
+#endif
+            cr->arc(pxs[i], pys[i], point_radius, 0.0, 2.0*pi);
             cr->fill();
         }
     if (point)
@@ -233,11 +243,19 @@ void draw_range(Context cr, int x0, int y0, int x1, int y1,
     Cairo::TextExtents label_ext;
     cr->get_text_extents(label, label_ext);
     auto label_x{axis == Direction::x
+#if __cplusplus < 202000L
+        ? compat::midpoint(x0, x1) - label_ext.width/2
+#else
         ? std::midpoint(x0, x1) - label_ext.width/2
+#endif
         : border_width};
     auto label_y{axis == Direction::x
         ? y0 + label_ext.height/2
+#if __cplusplus < 202000L
+        : compat::midpoint(y0, y1) + label_ext.height/2};
+#else
         : std::midpoint(y0, y1) + label_ext.height/2};
+#endif
     auto gap{text_size - label_ext.height};
     cr->rectangle(label_x - gap, label_y - label_ext.height - gap,
                   label_ext.width + 2*gap, label_ext.height + 2*gap);
@@ -870,7 +888,11 @@ void Plotter::record(bool incremental)
     auto [x_min, x_max] = m_x_axis.get_coord_range();
     auto [y_min, y_max] = m_y_axis.get_coord_range();
 
+#if __cplusplus < 202000L
+    State new_state{x_min, x_max, y_min, y_max, incremental};
+#else
     State new_state(x_min, x_max, y_min, y_max, incremental);
+#endif
     // Don't record duplicate states. E.g. autoscale after autoscale.
     if (!m_history.empty() && new_state == m_history.back())
         return;
@@ -991,7 +1013,13 @@ void Plotter::Subrange::move(Point dp, bool all)
 
 void Plotter::Subrange::scale(double x_frac, double y_frac, std::optional<Point> center)
 {
-    auto mid{center ? *center : Point{std::midpoint(m_p1.x, m_p2.x), std::midpoint(m_p1.y, m_p2.y)}};
+    auto mid{center
+        ? *center
+#if __cplusplus < 202000L
+        : Point{compat::midpoint(m_p1.x, m_p2.x), compat::midpoint(m_p1.y, m_p2.y)}};
+#else
+        : Point{std::midpoint(m_p1.x, m_p2.x), std::midpoint(m_p1.y, m_p2.y)}};
+#endif
     m_p1.x = x_frac*(m_p1.x - mid.x) + mid.x;
     m_p1.y = y_frac*(m_p1.y - mid.y) + mid.y;
     m_p2.x = x_frac*(m_p2.x - mid.x) + mid.x;

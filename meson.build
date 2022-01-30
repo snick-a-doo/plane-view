@@ -5,7 +5,7 @@
 # meson build/ --reconfigure --buildtype=release
 
 project('plane-view', 'cpp',
-        default_options: ['cpp_std=c++2a', 'warning_level=3'],
+        default_options: ['cpp_std=c++17', 'warning_level=3'],
         version: '0.0.1',
         license: 'GPL3')
 

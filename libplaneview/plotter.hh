@@ -28,10 +28,17 @@
 /// A 2D point.
 struct Point
 {
-    double x{0};
-    double y{0};
+#if __cplusplus < 202000L
+    Point(double x = 0.0, double y = 0.0) : x{x}, y{y} {}
+#endif
+    double x{0.0};
+    double y{0.0};
     // Generate comparison operators.
+#if __cplusplus < 202000L
+    bool operator==(Point const& p) const { return p.x == x && p.y == y; }
+#else
     auto operator <=>(Point const& point) const = default;
+#endif
 };
 std::ostream& operator<<(std::ostream& os, Point const& p);
 
@@ -173,7 +180,14 @@ private:
         double y_max; ///< Y-axis high range.
         bool incremental; ///< True for incremental changes.
         // Generate comparison operators.
+#if __cplusplus < 202000L
+        bool operator==(State const& state) const {
+            return state.x_min == x_min && state.x_max == x_max && state.y_min == y_min
+                && state.y_max == y_max && state.incremental == incremental;
+        };
+#else
         auto operator <=>(State const& state) const = default;
+#endif
     };
     /// Add a state to the undo stack.
     /// @param incremental If true, the state is an incremental change. If the previous

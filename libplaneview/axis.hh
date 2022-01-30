@@ -78,6 +78,11 @@ public:
     /// label if that's desired.
     struct Tick
     {
+#if __cplusplus < 202000L
+        Tick(double position, std::optional<std::string> label)
+            : position(position), label(label)
+        {}
+#endif
         double position;   ///< The device position of the tick mark.
         /// For major ticks, the formatted number to be displayed with the mark. No value
         /// for minor ticks.
