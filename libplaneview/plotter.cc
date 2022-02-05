@@ -49,6 +49,8 @@ auto constexpr grid_left_margin{border_width + range_bar_width + tick_label_gap}
 auto constexpr point_radius{3.0};
 /// The width of the adjustable border of the range box in overview mode.
 auto constexpr handle_width{18.0};
+
+auto constexpr zoom_factor{1.1};
 /// The padding as fraction of the range to add to an autoscaled graph.
 auto constexpr autoscale_padding{0.05};
 
@@ -76,7 +78,7 @@ struct Color
 };
 
 Color constexpr black{0, 0, 0};
-Color constexpr background{225, 225, 245};
+Color constexpr background{230, 230, 250}; /// Tinted to avoid confusion with ggplot2.
 Color constexpr white{255, 255, 255};
 Color constexpr gray{128, 128, 128};
 Color constexpr zoom_box_color{128, 128, 128, 64};
@@ -118,16 +120,14 @@ static void draw_rectangle(Context cr, Point const& p1, Point const& p2,
         cr->stroke();
 }
 
-/// Draw the axis numbers and tick marks.
-static void draw_axes_and_grid(Context cr, Axis const& x_axis, Axis const& y_axis)
+/// Draw the axis numbers, tick marks, and grid lines.
+static void draw_axes_and_grid(Context cr,
+                               std::vector<Axis::Tick> const& x_ticks,
+                               std::vector<Axis::Tick> const& y_ticks,
+                               double x_low, double x_high,
+                               double y_low, double y_high)
 {
-    auto x_ticks{x_axis.get_ticks()};
-    auto y_ticks{y_axis.get_ticks()};
-    assert (!x_ticks.empty() && !y_ticks.empty());
-
     // Draw the numbers and external tick lines.
-    auto [x_low, x_high] = x_axis.get_pos_range();
-    auto [y_low, y_high] = y_axis.get_pos_range();
     cr->set_line_width(1.0);
     set_color(cr, black);
     for (auto x : x_ticks)
@@ -212,7 +212,7 @@ static void draw_plot(Context cr,
     }
 }
 
-/// Draw range bars in the margin.
+/// Draw a range bar.
 void draw_range(Context cr, int x0, int y0, int x1, int y1,
                 std::string const& label, Direction axis)
 {
@@ -246,6 +246,36 @@ void draw_range(Context cr, int x0, int y0, int x1, int y1,
     set_color(cr, black);
     cr->move_to(label_x, label_y);
     cr->show_text(label);
+}
+
+/// Draw range bars in the margins that correspond to the rectangle formed by p1 and p2.
+void draw_ranges(Context cr, Glib::RefPtr<Gdk::Window> window,
+                 Point const& p1, Point const& p2, Axis const& x_axis, Axis const& y_axis)
+{
+    auto dx{std::abs(x_axis.pos_to_coord(p2.x) - x_axis.pos_to_coord(p1.x))};
+    auto label{x_axis.format(dx, 1)};
+    auto y{window->get_height() - border_width - closest_point_text_size - range_bar_width/2};
+    draw_range(cr, p1.x, y, p2.x, y, label, Direction::x);
+    window->invalidate_rect(
+        Gdk::Rectangle(0, y - range_bar_width/2, window->get_width(), range_bar_width), false);
+
+    auto dy{std::abs(y_axis.pos_to_coord(p2.y) - y_axis.pos_to_coord(p1.y))};
+    label = y_axis.format(dy, 1);
+    auto x{border_width + range_bar_width/2};
+    draw_range(cr, x, p1.y, x, p2.y, label, Direction::y);
+    Cairo::TextExtents label_ext;
+    cr->get_text_extents(label, label_ext);
+    window->invalidate_rect(
+        Gdk::Rectangle(border_width, 0,
+                       std::max(label_ext.width + border_width, range_bar_width),
+                       window->get_height()),
+        false);
+
+    // Show the slope.
+    std::ostringstream os;
+    os << "m = " << dy/dx;
+    cr->move_to(border_width, y);
+    cr->show_text(os.str());
 }
 
 /// Mark a an L-shaped region of the screen dirty after moving a corner of a rectangle.
@@ -428,12 +458,12 @@ bool Plotter::on_key_press_event(GdkEventKey* event)
         break;
     case GDK_KEY_plus:
     case GDK_KEY_equal:
-        scale(1.0/1.1, 1.0/1.1);
+        scale(1.0/zoom_factor, 1.0/zoom_factor);
         record(true);
         break;
     case GDK_KEY_minus:
     case GDK_KEY_underscore:
-        scale(1.1, 1.1);
+        scale(zoom_factor, zoom_factor);
         record(true);
         break;
     case GDK_KEY_Left:
@@ -461,6 +491,7 @@ bool Plotter::on_key_press_event(GdkEventKey* event)
     {
         auto [xlow, xhigh] = m_x_axis.get_coord_range();
         auto [ylow, yhigh] = m_y_axis.get_coord_range();
+        // Send the ranges to stdout to be received by the R call.
         std::cout << xlow << ' ' << xhigh << ' ' << ylow << ' ' << yhigh << std::endl;
         m_app->quit();
         break;
@@ -636,12 +667,8 @@ bool Plotter::on_motion_notify_event(GdkEventMotion* event)
     auto [y_low, y_high] = m_y_axis.get_pos_range();
     m_drag->pointer = {clip(event->x, x_low, x_high), clip(event->y, y_high, y_low)};
     auto precision{event->state & Gdk::ModifierType::CONTROL_MASK ? 20 : 200};
-    std::cout << m_drag->pointer.x << ' ' << m_drag->pointer.y << " -> ";
     m_drag->pointer.x = m_x_axis.round(m_drag->pointer.x, precision);
     m_drag->pointer.y = m_y_axis.round(m_drag->pointer.y, precision);
-    std::cout << m_drag->pointer.x << ' ' << m_drag->pointer.y << " : ";
-    std::cout << m_x_axis.pos_to_coord(m_drag->pointer.x) << ' '
-              << m_y_axis.pos_to_coord(m_drag->pointer.y) << std::endl;
 
     auto dx{m_drag->pointer.x - last.x};
     auto dy{m_drag->pointer.y - last.y};
@@ -694,7 +721,7 @@ bool Plotter::on_button_release_event(GdkEventButton*)
 
 bool Plotter::on_scroll_event(GdkEventScroll* event)
 {
-    auto x_frac{event->direction == GDK_SCROLL_UP ? 1.0/1.1 : 1.1};
+    auto x_frac{event->direction == GDK_SCROLL_UP ? 1.0/zoom_factor : zoom_factor};
     auto y_frac{x_frac};
 
     // Ctrl+wheel scales vertically only.
@@ -749,6 +776,8 @@ bool Plotter::on_draw(Context const& cr)
 
     cr->set_font_size(text_size);
     cr->select_font_face("sans", Cairo::FONT_SLANT_NORMAL, Cairo::FONT_WEIGHT_NORMAL);
+    auto [x_low, x_high] = m_x_axis.get_pos_range();
+    auto [y_low, y_high] = m_y_axis.get_pos_range();
 
     // Show the current undo frame and the total number of frames.
     {
@@ -772,9 +801,8 @@ bool Plotter::on_draw(Context const& cr)
         set_color(cr, black);
         Cairo::TextExtents point_ext;
         cr->get_text_extents(os.str(), point_ext);
-        auto [low, high] = m_x_axis.get_pos_range();
         cr->move_to(clip(m_x_axis.coord_to_pos(m_closest_point->x) - 0.5*point_ext.width,
-                         low, high - point_ext.width),
+                         x_low, x_high - point_ext.width),
                     get_height() - border_width);
         cr->show_text(os.str());
         cr->set_font_matrix(font_mat);
@@ -782,10 +810,11 @@ bool Plotter::on_draw(Context const& cr)
     }
 
     {
+        auto y_ticks{m_y_axis.get_ticks()};
         // Adjust the left edge to allow room for tick labels.
         auto y_label_width{0.0};
         Cairo::TextExtents ex;
-        for (auto const& t : m_y_axis.get_ticks())
+        for (auto const& t : y_ticks)
         {
             if (t.label)
             {
@@ -796,42 +825,23 @@ bool Plotter::on_draw(Context const& cr)
         // Add a small amount to make narrow gap between the labels and the range bar
         // ends. Use the difference in the font size and the text size since this is used
         // implicitly for the x-labels. See grid_bottom_margin.
-        auto [x_low, x_high] = m_x_axis.get_pos_range();
         x_low = grid_left_margin + y_label_width + text_size - ex.height;
         m_x_axis.set_pos(x_low, x_high);
+        // Get the x_ticks after adjusting the left endpoint to accommodate y-labels.
+        auto x_ticks{m_x_axis.get_ticks()};
+        // Draw the grid lines, tick marks and numbers. Do this before drawing ranges so
+        // the range and its rectangle are drawn over the axis numbers.
+        draw_axes_and_grid(cr, x_ticks, y_ticks, x_low, x_high, y_low, y_high);
     }
-
-    // Draw the grid lines, tick marks and numbers. Do this before drawing ranges so the
-    // range and its rectangle are drawn over the axis numbers.
-    draw_axes_and_grid(cr, m_x_axis, m_y_axis);
 
     // Draw the ranges if zoom-box dragging is in progress.
-    if (m_drag)
-    {
-        auto label{m_x_axis.format(std::abs(m_x_axis.pos_to_coord(m_drag->start.x)
-                                            - m_x_axis.pos_to_coord(m_drag->pointer.x)), 1)};
-        auto y{get_height() - border_width - closest_point_text_size - range_bar_width/2};
-        draw_range(cr, m_drag->start.x, y, m_drag->pointer.x, y, label, Direction::x);
-        get_window()->invalidate_rect(
-            Gdk::Rectangle(0, y - range_bar_width/2, get_width(), range_bar_width), false);
-
-        label = m_y_axis.format(std::abs(m_y_axis.pos_to_coord(m_drag->start.y)
-                                         - m_y_axis.pos_to_coord(m_drag->pointer.y)), 1);
-
-        auto x{border_width + range_bar_width/2};
-        draw_range(cr, x, m_drag->start.y, x, m_drag->pointer.y, label, Direction::y);
-        Cairo::TextExtents label_ext;
-        cr->get_text_extents(label, label_ext);
-        get_window()->invalidate_rect(
-            Gdk::Rectangle(border_width, 0,
-                           std::max(label_ext.width + border_width, range_bar_width),
-                           get_height()),
-            false);
-    }
+    if (mp_subrange)
+        draw_ranges(cr, get_window(), mp_subrange->get_p1(), mp_subrange->get_p2(),
+                    m_x_axis, m_y_axis);
+    else if (m_drag)
+        draw_ranges(cr, get_window(), m_drag->start, m_drag->pointer, m_x_axis, m_y_axis);
 
     // Mask off the area outside the graph.
-    auto [x_low, x_high] = m_x_axis.get_pos_range();
-    auto [y_low, y_high] = m_y_axis.get_pos_range();
     auto width{x_high - x_low};
     auto height{y_high - y_low};
     cr->rectangle(x_low, y_low, width, height);

@@ -20,6 +20,7 @@
 #include <iostream>
 #include <numeric>
 #include <sstream>
+#include <stdexcept>
 
 const int min_ticks{4};
 
@@ -31,7 +32,7 @@ static std::pair<double, int> axis_round(double range, double ticks)
     using namespace std;
 
     // The unrounded interval.
-    auto interval{range/ticks};
+    auto interval{std::abs(range)/ticks};
     // The place of the most significant digit of the interval.
     auto exponent{static_cast<int>(floor(log10(interval)))};
     // The interval shifted to the range [1, 10)
@@ -59,7 +60,7 @@ static std::pair<double, int> axis_round(double range, double ticks)
 static std::pair<double, double> rounded_range(double low_coord, double high_coord)
 {
     // Set the precision for range limits to 2 more than the tick labels.
-    auto [dx, prec] = axis_round(std::abs(high_coord - low_coord), min_ticks);
+    auto [dx, prec] = axis_round(high_coord - low_coord, min_ticks);
     auto scale{std::pow(10, prec + 2)};
     auto round_prec = [scale](double x) {
         return std::round(x * scale) / scale;
@@ -75,6 +76,21 @@ void Axis::set_pos(double low_pos, double high_pos)
 
 void Axis::set_coord_range(double low_coord, double high_coord, double pad_fraction)
 {
+    auto cant_be_int = [](double x) {
+        return std::isnan(x) || std::isinf(x)
+            || x < std::numeric_limits<int>::min()
+            || x > std::numeric_limits<int>::max();
+    };
+    auto [dx, prec] = axis_round(high_coord - low_coord, min_ticks);
+    // Double the tick density to include minor ticks.
+    dx *= 0.5;
+    // See if we can handle the range being asked for.
+    if (std::abs(dx) < std::numeric_limits<double>::epsilon()
+        || cant_be_int(low_coord/dx) || cant_be_int(high_coord/dx))
+    {
+        std::cerr << "Range out of range" << std::endl;
+        return;
+    }
     auto extra{pad_fraction*(high_coord - low_coord)};
     auto [low, high] = rounded_range(low_coord - extra, high_coord + extra);
     m_low_coord = low;
@@ -90,8 +106,8 @@ void Axis::set_coord_range_by_pos(double low_pos, double high_pos, double pad_fr
 
 void Axis::move_coord_range_by_pos(double delta_pos)
 {
-    auto scale{(m_high_pos - m_low_pos)/(m_high_coord - m_low_coord)};
-    set_coord_range(m_low_coord + delta_pos/scale, m_high_coord + delta_pos/scale);
+    auto delta_coord{delta_pos*(m_high_coord - m_low_coord)/(m_high_pos - m_low_pos)};
+    set_coord_range(m_low_coord + delta_coord, m_high_coord + delta_coord);
 }
 
 void Axis::scale_range(double factor, std::optional<double> center_pos)
@@ -130,14 +146,14 @@ std::pair<double, double> Axis::get_pos_range() const
 
 double Axis::pos_to_coord(double pos) const
 {
-    auto scale{(m_high_pos - m_low_pos)/(m_high_coord - m_low_coord)};
-    return (pos - m_low_pos)/scale + m_low_coord;
+    auto scale{(pos - m_low_pos)/(m_high_pos - m_low_pos)};
+    return std::lerp(m_low_coord, m_high_coord, scale);
 }
 
 double Axis::coord_to_pos(double coord) const
 {
-    auto scale{(m_high_pos - m_low_pos)/(m_high_coord - m_low_coord)};
-    return m_low_pos + scale*(coord - m_low_coord);
+    auto scale{(coord - m_low_coord)/(m_high_coord - m_low_coord)};
+    return std::lerp(m_low_pos, m_high_pos, scale);
 }
 
 std::vector<double> Axis::coord_to_pos(std::vector<double> const& coords) const
@@ -159,13 +175,14 @@ std::vector<Axis::Tick> Axis::get_ticks() const
 
     for (auto x{low}; x <= high; ++x)
     {
-        ts.emplace_back(coord_to_pos(x*dx), std::nullopt);
+        auto coord{x*dx};
+        ts.emplace_back(coord_to_pos(coord), std::nullopt);
         if (x % 2 == 0)
         {
-            // Even ticks are major.
+            // Even-numbered ticks are major.
             std::ostringstream os;
-            os << std::fixed << std::setprecision(std::max(0, prec)) << x*dx;
-            ts.back().label = format(x*dx);
+            os << std::fixed << std::setprecision(std::max(0, prec)) << coord;
+            ts.back().label = format(coord);
         }
     }
     return ts;
