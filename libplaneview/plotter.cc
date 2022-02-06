@@ -59,6 +59,13 @@ std::pair constexpr motion_precision{200, 20};
 /// The padding as fraction of the range to add to an autoscaled graph.
 auto constexpr autoscale_padding{0.05};
 
+/// The input string that indicates the start of data.
+auto constexpr data_start_tag{"pv.start"};
+/// The input string that separates multiple data sets.
+auto constexpr data_separator{"pv.sep"};
+/// The input string that indicates the end of data.
+auto constexpr data_end_tag{"pv.end"};
+
 /// An enumeration for the x and y directions.
 enum class Direction {x, y};
 
@@ -459,13 +466,19 @@ bool Plotter::on_read(Glib::IOCondition io_cond)
 
     // on_read() should only be called once.
     assert(m_xss.empty() && m_yss.empty());
-    Glib::ustring line;
+    Glib::ustring data;
     Glib::IOStatus status{Glib::IO_STATUS_NORMAL};
     auto read_state{-1};
-    while (status == Glib::IO_STATUS_NORMAL)
+    status = m_io_channel->read_to_end(data);
+    if (status != Glib::IO_STATUS_NORMAL)
+        return false;
+
+    std::istringstream is(data);
+    std::string token;
+    while (is)
     {
-        status = m_io_channel->read_line(line);
-        if (line == "\n")
+        is >> token;
+        if (token == data_separator)
         {
             ++read_state;
             if (read_state % 2 == 0)
@@ -474,13 +487,13 @@ bool Plotter::on_read(Glib::IOCondition io_cond)
                 m_yss.push_back(std::vector<double>());
             continue;
         }
-        if (line == "start\n")
+        else if (token == data_start_tag)
         {
             read_state = 0;
             m_xss.push_back(std::vector<double>());
             continue;
         }
-        if (line == "end\n")
+        else if (token == data_end_tag)
         {
             m_io_connection.disconnect();
             close(STDIN_FILENO);
@@ -489,14 +502,9 @@ bool Plotter::on_read(Glib::IOCondition io_cond)
             return true;
         }
         if (read_state == -1)
-        {
-            std::cerr << "Expected 'start'\n";
-            return true;
-        }
-        if (read_state % 2 == 0)
-            m_xss.back().push_back(std::atof(line.c_str()));
-        else
-            m_yss.back().push_back(std::atof(line.c_str()));
+            continue;
+
+        (read_state % 2 == 0 ? m_xss : m_yss).back().push_back(std::atof(token.c_str()));
     }
     return true;
 }
@@ -686,8 +694,12 @@ bool Plotter::on_motion_notify_event(GdkEventMotion* event)
         m_drag->pointer = {clip(event->x, x_low, x_high), clip(event->y, y_high, y_low)};
         auto precision{event->state & Gdk::ModifierType::CONTROL_MASK ?
             motion_precision.second : motion_precision.first};
-        m_drag->pointer.x = m_x_axis.round(m_drag->pointer.x, precision);
-        m_drag->pointer.y = m_y_axis.round(m_drag->pointer.y, precision);
+        // Round off dragged distances. But if we're only changing one dimension, don't
+        // round the other dimension. Rounding could cause it to move.
+        if (m_x_axis.is_in_pos_range(event->x))
+            m_drag->pointer.x = m_x_axis.round(m_drag->pointer.x, precision);
+        if (m_y_axis.is_in_pos_range(event->y))
+            m_drag->pointer.y = m_y_axis.round(m_drag->pointer.y, precision);
     }
     auto dx{m_drag->pointer.x - last.x};
     auto dy{m_drag->pointer.y - last.y};

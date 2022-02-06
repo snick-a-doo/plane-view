@@ -191,8 +191,10 @@ std::vector<Axis::Tick> Axis::get_ticks() const
 double Axis::round(double pos, int precision) const
 {
     auto [dx, prec] = axis_round(m_high_coord - m_low_coord, precision);
-    auto coord{pos_to_coord(pos)};
-    return coord_to_pos(dx*std::round(coord/dx));
+    // Dan't use pos_to_coord() and coord_to_pos(). They depend on the location of the
+    // origin. Here, we only care about scaling.
+    auto scale{(m_high_coord - m_low_coord)/(m_high_pos - m_low_pos)/dx};
+    return std::round(pos*scale)/scale;
 }
 
 std::string Axis::format(double x, int extra_prec) const

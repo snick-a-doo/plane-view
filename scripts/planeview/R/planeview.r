@@ -11,10 +11,10 @@ pview.app <- '/home/samv/programs/plane-view/build/app/plane-view'
 #' @param xss A list of x-axis vectors
 #' @param yss A list of y-axis vectors
 pvplot <- function(xss, yss) {
-    data <- c('start')
+    data <- c('pv.start')
     for (i in 1:length(xss))
-        data <- c(data, paste(xss[[i]]), '', paste(yss[[i]]), '')
-    strsplit(system2(pview.app, input=c(head(data, -1), 'end'), stdout=TRUE), split=' ')[[1]]
+        data <- c(data, paste(xss[[i]]), 'pv.sep', paste(yss[[i]]), 'pv.sep')
+    strsplit(system2(pview.app, input=c(head(data, -1), 'pv.end'), stdout=TRUE), split=' ')[[1]]
 }
 
 #' Plot vectors
