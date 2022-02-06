@@ -6,7 +6,7 @@
 
 project('plane-view', 'cpp',
         default_options: ['cpp_std=c++2a', 'warning_level=3'],
-        version: '0.0.1',
+        version: '0.1.0',
         license: 'GPL3')
 
 gtkmm_dep = dependency('gtkmm-3.0')

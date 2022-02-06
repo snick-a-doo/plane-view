@@ -50,7 +50,12 @@ auto constexpr point_radius{3.0};
 /// The width of the adjustable border of the range box in overview mode.
 auto constexpr handle_width{18.0};
 
-auto constexpr zoom_factor{1.1};
+/// The magnification for fine and coarse zooming.
+std::pair constexpr zoom_factor{1.1, 2.0};
+/// The fraction of the range to move for fine and coarse panning.
+std::pair constexpr pan_distance{0.1, 1.0};
+/// Fine and coarse pointer motion precision. See Axis::round()
+std::pair constexpr motion_precision{200, 20};
 /// The padding as fraction of the range to add to an autoscaled graph.
 auto constexpr autoscale_padding{0.05};
 
@@ -308,6 +313,91 @@ void redraw(Glib::RefPtr<Gdk::Window> window, Point p0, Point p1, Point p2, doub
               max3(p0.x, p1.x, p2.x) + width, std::max(p1.y, p2.y) + width);
 }
 
+/// @param p A point in device coordinates.
+/// @param xs A vector of data coordinate x-values.
+/// @param ys A vector of data coordinate y-values.
+/// @param x_axis The x-axis abject.
+/// @param y_axis The y-axis abject.
+/// @return A point formed from the member of xs and the corresponding member of ys that's
+/// plotted closest to p.
+std::optional<Point> find_closest_point(Point const& p, V const& xs, V const& ys,
+                                        Axis const& x_axis, Axis const& y_axis)
+{
+    // Ignore the point if it's outside the axes.
+    if (!x_axis.is_in_pos_range(p.x) || !y_axis.is_in_pos_range(p.y))
+        return std::nullopt;
+    if (xs.empty() || ys.empty())
+        return std::nullopt;
+
+    // We want the point that appears closest to the pointer on the screen. Measure
+    // distances in device coordinates.
+
+    // Start with the 1st point whose x-position is not less than p.x. Use data
+    // coordinates so we only have to convert the pointer position. That's okay because
+    // we're only looking at the x-dimension.
+    auto px{x_axis.pos_to_coord(p.x)};
+    // Try 1st x that's greater than or equal to the point.
+    auto it = std::find_if(xs.begin(), xs.end(), [px](double x) { return x >= px; });
+    // If there's no such x, or it's off the graph, try the previous.
+    if ((it == xs.end() || !x_axis.is_in_coord_range(*it)) && it != xs.begin())
+        --it;
+    // Give up if there's still no candidate.
+    if (it == xs.end() || !x_axis.is_in_coord_range(*it))
+        return std::nullopt;
+
+    auto distance = [&](double dx, double y) {
+        auto dy{y_axis.coord_to_pos(y) - p.y};
+        return std::sqrt(dx*dx + dy*dy);
+    };
+
+    // Go through the x-values in order of closeness to the pointer in the
+    // x-direction. Udate min_index when a closer point is found.
+    std::size_t min_index{static_cast<std::size_t>(std::distance(xs.begin(), it))};
+    std::size_t left{min_index - 1};
+    std::size_t right{min_index};
+    std::size_t const last{xs.size() - 1};
+    bool do_left{min_index > 0};
+    bool do_right{true};
+    auto left_pos{x_axis.coord_to_pos(xs[left])};
+    auto left_dist{p.x - left_pos};
+    auto right_pos{x_axis.coord_to_pos(xs[right])};
+    auto right_dist{right_pos - p.x};
+    auto const [axis_left, axis_right] = x_axis.get_pos_range();
+    double min_dist{std::numeric_limits<double>::max()};
+
+    while (do_left || do_right)
+    {
+        for (; do_left && (!do_right || left_dist <= right_dist); --left)
+        {
+            left_pos = x_axis.coord_to_pos(xs[left]);
+            left_dist = p.x - left_pos;
+            auto d2{distance(left_dist, ys[left])};
+            if (d2 < min_dist)
+            {
+                min_dist = d2;
+                min_index = left;
+            }
+            if (left_dist > min_dist || left == 0 || left_pos < axis_left)
+                do_left = false;
+        }
+        for (; do_right && (!do_left || right_dist <= left_dist); ++right)
+        {
+            right_pos = x_axis.coord_to_pos(xs[right]);
+            right_dist = right_pos - p.x;
+            auto d2{distance(right_dist, ys[right])};
+            if (d2 < min_dist)
+            {
+                min_dist = d2;
+                min_index = right;
+            }
+            if (right_dist > min_dist || right == last || right_pos > axis_right)
+                do_right = false;
+        }
+    }
+    assert(min_index < xs.size());
+    return Point{xs[min_index], ys[min_index]};
+}
+
 Plotter::Plotter(Glib::RefPtr<Gtk::Application> app)
     : m_app(app),
       m_now{m_history.end()}
@@ -448,7 +538,10 @@ void Plotter::scale(double x_frac, double y_frac, std::optional<Point> center = 
 
 bool Plotter::on_key_press_event(GdkEventKey* event)
 {
-    auto shift{event->state & Gdk::ModifierType::SHIFT_MASK};
+    auto const pan{event->state & Gdk::ModifierType::CONTROL_MASK
+        ? pan_distance.second : pan_distance.first};
+    auto const zoom{event->state & Gdk::ModifierType::CONTROL_MASK
+        ? zoom_factor.second : zoom_factor.first};
 
     switch (event->keyval)
     {
@@ -458,28 +551,28 @@ bool Plotter::on_key_press_event(GdkEventKey* event)
         break;
     case GDK_KEY_plus:
     case GDK_KEY_equal:
-        scale(1.0/zoom_factor, 1.0/zoom_factor);
+        scale(1.0/zoom, 1.0/zoom);
         record(true);
         break;
     case GDK_KEY_minus:
     case GDK_KEY_underscore:
-        scale(zoom_factor, zoom_factor);
+        scale(zoom, zoom);
         record(true);
         break;
     case GDK_KEY_Left:
-        move(shift ? -1.0 : -0.1, 0.0);
+        move(-pan, 0.0);
         record(true);
         break;
     case GDK_KEY_Right:
-        move(shift ? 1.0 : 0.1, 0.0);
+        move(pan, 0.0);
         record(true);
         break;
     case GDK_KEY_Up:
-        move(0.0, shift ? -1.0 : -0.1);
+        move(0.0, -pan);
         record(true);
         break;
     case GDK_KEY_Down:
-        move(0.0, shift ? 1.0 : 0.1);
+        move(0.0, pan);
         record(true);
         break;
     case GDK_KEY_Tab:
@@ -560,94 +653,19 @@ bool Plotter::on_button_press_event(GdkEventButton* event)
     // changes the x-scale, likewise for y.
     auto [x_low, x_high] = m_x_axis.get_pos_range();
     auto [y_low, y_high] = m_y_axis.get_pos_range();
-    m_drag = {{event->x > x_low ? event->x : x_high, event->y < y_low ? event->y : y_high},
-              {event->x, event->y},
+    m_drag = {{event->x < x_low ? x_high : event->x, event->y > y_low ? y_high : event->y},
+              {std::max(event->x, x_low), std::min(event->y, y_low)},
               bool(event->state & Gdk::ModifierType::SHIFT_MASK)};
+    // If dragging from the corner, the zoom box initially covers the whole grid. In all
+    // other cases, the zoom box initially has no area.
+    if (event->x < x_low && event->y > y_low)
+        queue_draw();
 
     // Get retady to change the size or position of the subrange box.
     if (mp_subrange)
         mp_subrange->start({event->x, event->y});
 
     return true;
-}
-
-
-std::optional<Point> find_closest_point(Point const& p, V const& xs, V const& ys,
-                                        Axis const& x_axis, Axis const& y_axis)
-{
-    // Ignore the point if it's outside the axes.
-    if (!x_axis.is_in_pos_range(p.x) || !y_axis.is_in_pos_range(p.y))
-        return std::nullopt;
-    if (xs.empty() || ys.empty())
-        return std::nullopt;
-
-    // We want the point that appears closest to the pointer on the screen. Measure
-    // distances in device coordinates.
-
-    // Start with the 1st point whose x-position is not less than p.x. Use data
-    // coordinates so we only have to convert the pointer position. That's okay because
-    // we're only looking at the x-dimension.
-    auto px{x_axis.pos_to_coord(p.x)};
-    // Try 1st x that's greater than or equal to the point.
-    auto it = std::find_if(xs.begin(), xs.end(), [px](double x) { return x >= px; });
-    // If there's no such x, or it's off the graph, try the previous.
-    if ((it == xs.end() || !x_axis.is_in_coord_range(*it)) && it != xs.begin())
-        --it;
-    // Give up if there's still no candidate.
-    if (it == xs.end() || !x_axis.is_in_coord_range(*it))
-        return std::nullopt;
-
-    auto distance = [&](double dx, double y) {
-        auto dy{y_axis.coord_to_pos(y) - p.y};
-        return std::sqrt(dx*dx + dy*dy);
-    };
-
-    // Go through the x-values in order of closeness to the pointer in the
-    // x-direction. Udate min_index when a closer point is found.
-    std::size_t min_index{static_cast<std::size_t>(std::distance(xs.begin(), it))};
-    std::size_t left{min_index - 1};
-    std::size_t right{min_index};
-    std::size_t const last{xs.size() - 1};
-    bool do_left{min_index > 0};
-    bool do_right{true};
-    auto left_pos{x_axis.coord_to_pos(xs[left])};
-    auto left_dist{p.x - left_pos};
-    auto right_pos{x_axis.coord_to_pos(xs[right])};
-    auto right_dist{right_pos - p.x};
-    auto const [axis_left, axis_right] = x_axis.get_pos_range();
-    double min_dist{std::numeric_limits<double>::max()};
-
-    while (do_left || do_right)
-    {
-        for (; do_left && (!do_right || left_dist <= right_dist); --left)
-        {
-            left_pos = x_axis.coord_to_pos(xs[left]);
-            left_dist = p.x - left_pos;
-            auto d2{distance(left_dist, ys[left])};
-            if (d2 < min_dist)
-            {
-                min_dist = d2;
-                min_index = left;
-            }
-            if (left_dist > min_dist || left == 0 || left_pos < axis_left)
-                do_left = false;
-        }
-        for (; do_right && (!do_left || right_dist <= left_dist); ++right)
-        {
-            right_pos = x_axis.coord_to_pos(xs[right]);
-            right_dist = right_pos - p.x;
-            auto d2{distance(right_dist, ys[right])};
-            if (d2 < min_dist)
-            {
-                min_dist = d2;
-                min_index = right;
-            }
-            if (right_dist > min_dist || right == last || right_pos > axis_right)
-                do_right = false;
-        }
-    }
-    assert(min_index < xs.size());
-    return Point{xs[min_index], ys[min_index]};
 }
 
 bool Plotter::on_motion_notify_event(GdkEventMotion* event)
@@ -662,14 +680,15 @@ bool Plotter::on_motion_notify_event(GdkEventMotion* event)
         return true;
 
     auto last{m_drag->pointer};
-
-    auto [x_low, x_high] = m_x_axis.get_pos_range();
-    auto [y_low, y_high] = m_y_axis.get_pos_range();
-    m_drag->pointer = {clip(event->x, x_low, x_high), clip(event->y, y_high, y_low)};
-    auto precision{event->state & Gdk::ModifierType::CONTROL_MASK ? 20 : 200};
-    m_drag->pointer.x = m_x_axis.round(m_drag->pointer.x, precision);
-    m_drag->pointer.y = m_y_axis.round(m_drag->pointer.y, precision);
-
+    {
+        auto [x_low, x_high] = m_x_axis.get_pos_range();
+        auto [y_low, y_high] = m_y_axis.get_pos_range();
+        m_drag->pointer = {clip(event->x, x_low, x_high), clip(event->y, y_high, y_low)};
+        auto precision{event->state & Gdk::ModifierType::CONTROL_MASK ?
+            motion_precision.second : motion_precision.first};
+        m_drag->pointer.x = m_x_axis.round(m_drag->pointer.x, precision);
+        m_drag->pointer.y = m_y_axis.round(m_drag->pointer.y, precision);
+    }
     auto dx{m_drag->pointer.x - last.x};
     auto dy{m_drag->pointer.y - last.y};
 
@@ -682,9 +701,11 @@ bool Plotter::on_motion_notify_event(GdkEventMotion* event)
         auto p2{mp_subrange->get_p2()};
 
         // Redraw the top and left borders...
-        redraw(get_window(), last_p2, last_p1, p1, handle_width);
+        redraw(get_window(), last_p2, last_p1, p1, handle_width + 1);
         // ...then the bottom and right borders.
-        redraw(get_window(), last_p1, last_p2, p2, handle_width);
+        redraw(get_window(), last_p1, last_p2, p2, handle_width + 1);
+        // We need a little extra width to make sure the stroked rectangle is fully
+        // erased.
     }
     else
         redraw(get_window(), m_drag->start, last, m_drag->pointer);
@@ -721,16 +742,16 @@ bool Plotter::on_button_release_event(GdkEventButton*)
 
 bool Plotter::on_scroll_event(GdkEventScroll* event)
 {
-    auto x_frac{event->direction == GDK_SCROLL_UP ? 1.0/zoom_factor : zoom_factor};
-    auto y_frac{x_frac};
-
-    // Ctrl+wheel scales vertically only.
-    if (event->state & Gdk::ModifierType::CONTROL_MASK)
-        y_frac = 1.0;
-    // Shift+wheel scales horizontally only.
-    if (event->state & Gdk::ModifierType::SHIFT_MASK)
-        x_frac = 1.0;
-    scale(x_frac, y_frac, Point{event->x, event->y});
+    // Do coarse scaling with Ctrl.
+    auto zoom{event->state & Gdk::ModifierType::CONTROL_MASK
+        ? zoom_factor.second : zoom_factor.first};
+    if (event->direction == GDK_SCROLL_UP)
+        zoom = 1.0/zoom;
+    // Shift+wheel scales y only.
+    // Alt+wheel scales x only.
+    scale(event->state & Gdk::ModifierType::SHIFT_MASK ? 1.0 : zoom,
+          event->state & Gdk::ModifierType::MOD1_MASK ? 1.0 : zoom, // MOD1 is Alt.
+          Point{event->x, event->y});
     record(true);
     queue_draw();
     return true;
@@ -873,6 +894,9 @@ bool Plotter::on_draw(Context const& cr)
 
 void Plotter::record(bool incremental)
 {
+    if (mp_subrange)
+        return;
+
     // Get rid of any any redo information.
     if (m_now != m_history.end())
         m_history.erase(std::next(m_now), m_history.end());
@@ -895,6 +919,8 @@ void Plotter::record(bool incremental)
 
 void Plotter::undo()
 {
+    if (mp_subrange)
+        return;
     assert(!m_history.empty());
     assert(m_now != m_history.end());
     if (m_now != m_history.begin())
@@ -903,6 +929,8 @@ void Plotter::undo()
 
 void Plotter::redo()
 {
+    if (mp_subrange)
+        return;
     assert(!m_history.empty());
     assert(m_now != m_history.end());
     if (std::next(m_now) != m_history.end())
