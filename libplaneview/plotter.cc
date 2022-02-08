@@ -59,12 +59,10 @@ std::pair constexpr motion_precision{200, 20};
 /// The padding as fraction of the range to add to an autoscaled graph.
 auto constexpr autoscale_padding{0.05};
 
-/// The input string that indicates the start of data.
-auto constexpr data_start_tag{"pv.start"};
-/// The input string that separates multiple data sets.
-auto constexpr data_separator{"pv.sep"};
+/// The input string that indicates the start of a vector.
+auto constexpr data_tag{"pv.data"};
 /// The input string that indicates the end of data.
-auto constexpr data_end_tag{"pv.end"};
+auto constexpr end_tag{"pv.end"};
 
 /// An enumeration for the x and y directions.
 enum class Direction {x, y};
@@ -467,45 +465,31 @@ bool Plotter::on_read(Glib::IOCondition io_cond)
     // on_read() should only be called once.
     assert(m_xss.empty() && m_yss.empty());
     Glib::ustring data;
-    Glib::IOStatus status{Glib::IO_STATUS_NORMAL};
     auto read_state{-1};
-    status = m_io_channel->read_to_end(data);
+    auto status{m_io_channel->read_to_end(data)};
     if (status != Glib::IO_STATUS_NORMAL)
-        return false;
+        return true;
 
     std::istringstream is(data);
     std::string token;
     while (is)
     {
         is >> token;
-        if (token == data_separator)
+        if (token == data_tag)
+            (++read_state % 2 == 0 ? m_xss : m_yss).push_back(std::vector<double>());
+        else if (token == end_tag)
         {
-            ++read_state;
-            if (read_state % 2 == 0)
-                m_xss.push_back(std::vector<double>());
-            else
-                m_yss.push_back(std::vector<double>());
-            continue;
-        }
-        else if (token == data_start_tag)
-        {
-            read_state = 0;
-            m_xss.push_back(std::vector<double>());
-            continue;
-        }
-        else if (token == data_end_tag)
-        {
-            m_io_connection.disconnect();
-            close(STDIN_FILENO);
             autoscale();
             record(false);
-            return true;
+            break;
         }
-        if (read_state == -1)
-            continue;
-
-        (read_state % 2 == 0 ? m_xss : m_yss).back().push_back(std::atof(token.c_str()));
+        // Ignore anything before the start tag.
+        else if (read_state != -1)
+            (read_state % 2 == 0 ? m_xss : m_yss).back().push_back(std::atof(token.c_str()));
     }
+
+    m_io_connection.disconnect();
+    close(STDIN_FILENO);
     return true;
 }
 
@@ -799,6 +783,7 @@ bool Plotter::on_configure_event(GdkEventConfigure* event)
 
 bool Plotter::on_draw(Context const& cr)
 {
+    // Clear the window
     set_color(cr, white);
     cr->rectangle(0, 0, get_width(), get_height());
     cr->fill();
@@ -820,6 +805,7 @@ bool Plotter::on_draw(Context const& cr)
         cr->move_to(border_width, get_height() - border_width);
         cr->show_text(os.str());
     }
+    // Show the coordinates of the point closest to the pointer if available.
     if (m_closest_point
         && m_x_axis.is_in_coord_range(m_closest_point->x)
         && m_y_axis.is_in_coord_range(m_closest_point->y))
@@ -841,7 +827,7 @@ bool Plotter::on_draw(Context const& cr)
         cr->set_font_matrix(font_mat);
         cr->select_font_face("sans", Cairo::FONT_SLANT_NORMAL, Cairo::FONT_WEIGHT_NORMAL);
     }
-
+    // Show the axes and grid.
     {
         auto y_ticks{m_y_axis.get_ticks()};
         // Adjust the left edge to allow room for tick labels.

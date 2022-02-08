@@ -24,19 +24,19 @@
      inkscape:pagecheckerboard="0"
      inkscape:document-units="mm"
      showgrid="false"
-     showguides="true"
+     showguides="false"
      inkscape:guide-bbox="true"
      inkscape:snap-others="true"
      inkscape:snap-to-guides="true"
-     inkscape:zoom="1.8116734"
-     inkscape:cx="418.94968"
-     inkscape:cy="288.95936"
+     inkscape:zoom="1.2810466"
+     inkscape:cx="318.09929"
+     inkscape:cy="448.46145"
      inkscape:window-width="1920"
      inkscape:window-height="1011"
      inkscape:window-x="0"
      inkscape:window-y="32"
      inkscape:window-maximized="1"
-     inkscape:current-layer="layer2">
+     inkscape:current-layer="layer1">
     <sodipodi:guide
        position="167.02576,264.91875"
        orientation="1,0"
@@ -45,13 +45,38 @@
        position="180.14479,265.89272"
        orientation="1,0"
        id="guide9804" />
+    <sodipodi:guide
+       position="35.787113,186.05627"
+       orientation="1,0"
+       id="guide77545" />
+    <sodipodi:guide
+       position="28.295549,209.0153"
+       orientation="1,0"
+       id="guide80486" />
+    <sodipodi:guide
+       position="28.295548,190.46573"
+       orientation="0,-1"
+       id="guide81267" />
+    <sodipodi:guide
+       position="28.295548,186.67007"
+       orientation="0,-1"
+       id="guide81421" />
+    <sodipodi:guide
+       position="30.545742,186.67008"
+       orientation="1,0"
+       id="guide81537" />
+    <sodipodi:guide
+       position="67.546097,172.14081"
+       orientation="0,-1"
+       id="guide82775" />
   </sodipodi:namedview>
   <defs
      id="defs2" />
   <g
      inkscape:label="Layer 1"
      inkscape:groupmode="layer"
-     id="layer1">
+     id="layer1"
+     style="display:inline;opacity:0.5">
     <image
        width="146.31459"
        height="108.74375"
@@ -376,9 +401,9 @@ YII=
        sodipodi:nodetypes="cccc" />
     <path
        id="rect905-5"
-       style="fill:none;stroke:#000000;stroke-width:0.264583"
-       d="m 178.48715,125.06884 h -11.46139 m 0,-1.61326 h 11.46139"
-       sodipodi:nodetypes="cccc" />
+       style="fill:none;stroke:#000000;stroke-width:0.132292;stroke-miterlimit:4;stroke-dasharray:none"
+       d="m 67.546099,124.85919 -31.758986,0 -5.241371,2.94747 h -2.250193 m 0,-4.56073 h 9.812637 9.812638 19.625275"
+       sodipodi:nodetypes="cccccccc" />
     <path
        id="rect905-6"
        style="fill:none;stroke:#000000;stroke-width:0.264583"
@@ -393,100 +418,90 @@ YII=
        sodipodi:nodetypes="cccc" />
     <path
        id="rect905-3-7"
-       style="fill:none;stroke:#000000;stroke-width:0.264583"
-       d="m 44.314813,110.94373 h -11.46139 m 0,-2.21817 h 11.46139"
-       sodipodi:nodetypes="cccc" />
-    <path
-       id="rect905-3-7-5"
-       style="fill:none;stroke:#000000;stroke-width:0.264583"
-       d="m 67.623733,113.7633 h -11.46139 m 0,-3.09005 h 11.46139"
-       sodipodi:nodetypes="cccc" />
+       style="fill:none;stroke:#000000;stroke-width:0.132292;stroke-miterlimit:4;stroke-dasharray:none"
+       d="m 44.199844,110.94373 -8.412731,0 -5.24137,-0.6138 -2.250194,10e-6 m 0,-3.79566 2.278937,-10e-6 5.270112,2.19129 8.470215,0"
+       sodipodi:nodetypes="cccccccc" />
     <path
        id="rect905-3-7-5-9"
-       style="fill:none;stroke:#000000;stroke-width:0.264583"
-       d="M 129.93299,118.64944 H 118.4716 m 0,-4.67755 h 11.46139"
-       sodipodi:nodetypes="cccc" />
-    <path
-       id="rect905-3-7-5-3"
-       style="fill:none;stroke:#000000;stroke-width:0.264583"
-       d="m 78.019748,123.44712 h -11.46139 m 0,-4.67755 h 11.46139"
+       style="fill:none;stroke:#000000;stroke-width:0.132292;stroke-miterlimit:4;stroke-dasharray:none"
+       d="m 67.491116,118.64944 -39.195567,0 m 0,-4.67755 39.195567,0"
        sodipodi:nodetypes="cccc" />
     <text
        xml:space="preserve"
-       style="font-style:normal;font-weight:normal;font-size:4.23333px;line-height:1.25;font-family:sans-serif;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.264583"
+       style="font-style:normal;font-weight:normal;font-size:2.82222222px;line-height:1.25;font-family:sans-serif;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.264583"
        x="170.7561"
        y="24.846247"
        id="text3283"><tspan
          sodipodi:role="line"
          id="tspan3281"
-         style="font-size:4.23333px;stroke-width:0.264583"
+         style="stroke-width:0.264583;font-size:2.82222222px"
          x="170.7561"
          y="24.846247">Border width</tspan></text>
     <text
        xml:space="preserve"
-       style="font-style:normal;font-weight:normal;font-size:4.23333px;line-height:1.25;font-family:sans-serif;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.264583"
-       x="169.32646"
-       y="121.70251"
+       style="font-style:normal;font-weight:normal;font-size:2.82222px;line-height:1.25;font-family:sans-serif;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.264583"
+       x="9.417119"
+       y="126.48923"
        id="text3283-6"><tspan
          sodipodi:role="line"
          id="tspan3281-2"
-         style="font-size:4.23333px;stroke-width:0.264583"
-         x="169.32646"
-         y="121.70251">Border width</tspan></text>
+         style="font-size:2.82222px;stroke-width:0.264583"
+         x="9.417119"
+         y="126.48923">Border width</tspan></text>
     <text
        xml:space="preserve"
-       style="font-size:4.23333px;line-height:1.25;font-family:sans-serif;letter-spacing:0px;word-spacing:0px;stroke-width:0.264583"
+       style="font-size:2.82222222px;line-height:1.25;font-family:sans-serif;letter-spacing:0px;word-spacing:0px;stroke-width:0.264583"
        x="166.4772"
        y="111.07836"
        id="text21438"><tspan
          sodipodi:role="line"
          id="tspan21436"
-         style="stroke-width:0.264583"
+         style="stroke-width:0.264583;font-size:2.82222222px"
          x="166.4772"
          y="111.07836">Tick length</tspan></text>
     <text
        xml:space="preserve"
-       style="font-size:4.23333px;line-height:1.25;font-family:sans-serif;letter-spacing:0px;word-spacing:0px;stroke-width:0.264583"
-       x="2.1692185"
-       y="110.86752"
+       style="font-size:2.82222px;line-height:1.25;font-family:sans-serif;letter-spacing:0px;word-spacing:0px;stroke-width:0.264583"
+       x="7.1419783"
+       y="108.75086"
        id="text28374"><tspan
          sodipodi:role="line"
-         style="stroke-width:0.264583"
-         x="2.1692185"
-         y="110.86752"
+         style="font-size:2.82222px;stroke-width:0.264583"
+         x="7.1419783"
+         y="108.75086"
          id="tspan30062">Tick Label gap</tspan></text>
     <text
        xml:space="preserve"
-       style="font-size:4.23333px;line-height:1.25;font-family:sans-serif;letter-spacing:0px;word-spacing:0px;stroke-width:0.264583"
-       x="130.17755"
-       y="118.1673"
+       style="font-size:2.82222px;line-height:1.25;font-family:sans-serif;letter-spacing:0px;word-spacing:0px;stroke-width:0.264583"
+       x="4.3555846"
+       y="117.34651"
        id="text32680"><tspan
          sodipodi:role="line"
          id="tspan32678"
-         style="stroke-width:0.264583"
-         x="130.17755"
-         y="118.1673">Range bar width</tspan></text>
+         style="font-size:2.82222px;stroke-width:0.264583"
+         x="4.3555846"
+         y="117.34651">Range bar width</tspan></text>
     <text
        xml:space="preserve"
-       style="font-size:4.23333px;line-height:1.25;font-family:sans-serif;letter-spacing:0px;word-spacing:0px;stroke-width:0.264583"
-       x="35.556782"
-       y="122.54981"
+       style="font-size:2.82222px;line-height:1.25;font-family:sans-serif;letter-spacing:0px;word-spacing:0px;stroke-width:0.264583"
+       x="2.7363901"
+       y="121.91788"
        id="text36639"><tspan
          sodipodi:role="line"
          id="tspan36637"
-         style="stroke-width:0.264583"
-         x="35.556782"
-         y="122.54981">Closest point size</tspan></text>
+         style="font-size:2.82222px;stroke-width:0.264583"
+         x="2.7363901"
+         y="121.91788">Closest point size</tspan></text>
     <text
        xml:space="preserve"
-       style="font-size:4.23333px;line-height:1.25;font-family:sans-serif;letter-spacing:0px;word-spacing:0px;stroke-width:0.264583"
-       x="37.3293"
-       y="115.67902"
+       style="font-size:2.82222px;line-height:1.25;font-family:sans-serif;letter-spacing:0px;word-spacing:0px;stroke-width:0.264583"
+       x="15.388159"
+       y="113.32223"
        id="text39491"><tspan
          sodipodi:role="line"
          id="tspan39489"
-         style="stroke-width:0.264583"
-         x="37.3293"
-         y="115.67902">Text size</tspan></text>
+         style="font-size:2.82222px;stroke-width:0.264583"
+         x="15.388159"
+         y="113.32223">Text size</tspan></text>
   </g>
 </svg>
