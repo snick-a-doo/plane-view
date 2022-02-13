@@ -59,6 +59,10 @@ std::pair constexpr motion_precision{200, 20};
 /// The padding as fraction of the range to add to an autoscaled graph.
 auto constexpr autoscale_padding{0.05};
 
+/// Start with a line style of line rather than points if there are more than this many
+/// points. It can take a while to many points.
+std::size_t constexpr line_plot_threshold{5000};
+
 /// The input string that indicates the start of a vector.
 auto constexpr data_tag{"pv.data"};
 /// The input string that indicates the end of data.
@@ -205,14 +209,19 @@ static void draw_plot(Context cr,
         cr->stroke();
     }
     if (style != Line_Style::lines)
+    {
+        cr->set_line_width(2.0*point_radius);
         for (std::size_t i = 0; i < N; ++i)
         {
-            cr->arc(pxs[i], pys[i], point_radius, 0.0, 2.0*std::numbers::pi);
-            cr->fill();
+            cr->move_to(pxs[i], pys[i] - point_radius);
+            cr->line_to(pxs[i], pys[i] + point_radius);
         }
+        cr->stroke();
+    }
     if (point)
     {
         // Draw crosshairs on the passed-in point.
+        cr->set_line_width(0.5);
         set_color(cr, black);
         cr->move_to(point->x - 4*point_radius, point->y);
         cr->line_to(point->x + 4*point_radius, point->y);
@@ -475,18 +484,20 @@ bool Plotter::on_read(Glib::IOCondition io_cond)
     while (is)
     {
         is >> token;
+        if (token == end_tag)
+            break;
         if (token == data_tag)
             (++read_state % 2 == 0 ? m_xss : m_yss).push_back(std::vector<double>());
-        else if (token == end_tag)
-        {
-            autoscale();
-            record(false);
-            break;
-        }
         // Ignore anything before the start tag.
         else if (read_state != -1)
             (read_state % 2 == 0 ? m_xss : m_yss).back().push_back(std::atof(token.c_str()));
     }
+    if (std::accumulate(
+            m_xss.begin(), m_xss.end(), 0U, [](std::size_t n, auto xs){ return n + xs.size(); })
+        > line_plot_threshold)
+        m_line_style = Line_Style::lines;
+    autoscale();
+    record(false);
 
     m_io_connection.disconnect();
     close(STDIN_FILENO);
@@ -878,6 +889,7 @@ bool Plotter::on_draw(Context const& cr)
     // Draw the interactive range box if we're in overview mode.
     if (mp_subrange)
     {
+        cr->set_line_width(0.5);
         // Fill the entire rectangle...
         draw_rectangle(cr, mp_subrange->get_p1(), mp_subrange->get_p2(), zoom_box_color, true);
         // ...then draw the handles as outlines.
