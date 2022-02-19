@@ -54,8 +54,9 @@ auto constexpr handle_width{18.0};
 std::pair constexpr zoom_factor{1.1, 2.0};
 /// The fraction of the range to move for fine and coarse panning.
 std::pair constexpr pan_distance{0.1, 1.0};
-/// Fine and coarse pointer motion precision. See Axis::round()
-std::pair constexpr motion_precision{200, 20};
+/// Number of divisions between 1st and last major tick. Cursor position is rounded to a
+/// division boundary for coarse motion.
+auto constexpr coarse_motion_divisions{20};
 /// The padding as fraction of the range to add to an autoscaled graph.
 auto constexpr autoscale_padding{0.05};
 
@@ -67,6 +68,8 @@ std::size_t constexpr line_plot_threshold{5000};
 auto constexpr data_tag{"pv.data"};
 /// The input string that indicates the end of data.
 auto constexpr end_tag{"pv.end"};
+/// The precision of the reported ranges relative to tick label precision.
+auto constexpr output_precision{2};
 
 /// An enumeration for the x and y directions.
 enum class Direction {x, y};
@@ -434,7 +437,7 @@ void Plotter::autoscale()
     auto find_range = [](VV const& vv) -> std::tuple<double, double, double> {
         auto min{0.0};
         auto max{1.0};
-        auto pad{autoscale_padding};
+        auto pad{0.0};
         auto found{false};
         for (auto const& v : vv)
         {
@@ -443,6 +446,7 @@ void Plotter::autoscale()
             auto [min_it, max_it] = std::minmax_element(v.begin(), v.end());
             min = found ? std::min(min, *min_it) : *min_it;
             max = found ? std::max(max, *max_it) : *max_it;
+            pad = autoscale_padding*(std::abs(max - min));
             found = true;
         }
         // Show a span of 1.0 if there's only one point.
@@ -456,9 +460,9 @@ void Plotter::autoscale()
     };
 
     auto [x_min, x_max, x_pad] = find_range(m_xss);
-    m_x_axis.set_coord_range(x_min, x_max, x_pad);
+    m_x_axis.set_coord_range(x_min - x_pad, x_max + x_pad);
     auto [y_min, y_max, y_pad] = find_range(m_yss);
-    m_y_axis.set_coord_range(y_min, y_max, y_pad);
+    m_y_axis.set_coord_range(y_min - y_pad, y_max + y_pad);
 
     queue_draw();
 }
@@ -588,7 +592,10 @@ bool Plotter::on_key_press_event(GdkEventKey* event)
         auto [xlow, xhigh] = m_x_axis.get_coord_range();
         auto [ylow, yhigh] = m_y_axis.get_coord_range();
         // Send the ranges to stdout to be received by the R call.
-        std::cout << xlow << ' ' << xhigh << ' ' << ylow << ' ' << yhigh << std::endl;
+        std::cout << m_x_axis.format(xlow, output_precision) << ' '
+                  << m_x_axis.format(xhigh, output_precision) << ' '
+                  << m_y_axis.format(ylow, output_precision) << ' '
+                  << m_y_axis.format(yhigh, output_precision) << std::endl;
         m_app->quit();
         break;
     }
@@ -687,14 +694,15 @@ bool Plotter::on_motion_notify_event(GdkEventMotion* event)
         auto [x_low, x_high] = m_x_axis.get_pos_range();
         auto [y_low, y_high] = m_y_axis.get_pos_range();
         m_drag->pointer = {clip(event->x, x_low, x_high), clip(event->y, y_high, y_low)};
-        auto precision{event->state & Gdk::ModifierType::CONTROL_MASK ?
-            motion_precision.second : motion_precision.first};
-        // Round off dragged distances. But if we're only changing one dimension, don't
-        // round the other dimension. Rounding could cause it to move.
-        if (m_x_axis.is_in_pos_range(event->x))
-            m_drag->pointer.x = m_x_axis.round(m_drag->pointer.x, precision);
-        if (m_y_axis.is_in_pos_range(event->y))
-            m_drag->pointer.y = m_y_axis.round(m_drag->pointer.y, precision);
+        if (event->state & Gdk::ModifierType::CONTROL_MASK)
+        {
+            // Round off dragged distances. But if we're only changing one dimension,
+            // don't round the other dimension. Rounding could cause it to move.
+            if (m_x_axis.is_in_pos_range(event->x))
+                m_drag->pointer.x = m_x_axis.round_pos(m_drag->pointer.x, coarse_motion_divisions);
+            if (m_y_axis.is_in_pos_range(event->y))
+                m_drag->pointer.y = m_y_axis.round_pos(m_drag->pointer.y, coarse_motion_divisions);
+        }
     }
     auto dx{m_drag->pointer.x - last.x};
     auto dy{m_drag->pointer.y - last.y};

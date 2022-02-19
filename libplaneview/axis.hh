@@ -40,14 +40,10 @@ public:
 
     /// Set the coordinates of the ends of the axis. Values are padded rounded depending
     /// on the precision of the tick labels.
-    /// @param pad_fraction The fraction of the specified range to be included below and
-    /// above the specified range.
-    void set_coord_range(double low_coord, double high_coord, double pad_fraction = 0.0);
+    void set_coord_range(double low_coord, double high_coord);
     /// Set the device positions of the ends of the axis. The resulting coordinate Values
     /// are rounded depending on the precision of the tick labels.
-    /// @param pad_fraction The fraction of the specified range to be included below and
-    /// above the specified range.
-    void set_coord_range_by_pos(double low_pos, double high_pos, double pad_fraction = 0.0);
+    void set_coord_range_by_pos(double low_pos, double high_pos);
     /// Move the coordinate range by an amount that corresponds to the given position
     /// change.
     void move_coord_range_by_pos(double delta_pos);
@@ -90,7 +86,11 @@ public:
     /// @param x The number to format.
     /// @param extra_prec How many more digits of precision to use.
     std::string format(double x, int extra_prec = 0) const;
-    double round(double pos, int extra_prec = 0) const;
+    /// Adjust a position so it corresponds to a rounded coordinate.
+    /// @param pos The position to round.
+    /// @param divisions The axis is divided in to this many intervals between the 1st and
+    /// last major tick. The rounded value is at an endpoint of one of these divisions.
+    double round_pos(double pos, int division) const;
 
 private:
     /// The device position of the low end of the axis.

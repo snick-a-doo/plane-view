@@ -56,25 +56,13 @@ static std::pair<double, int> axis_round(double range, double ticks)
     return {rounded, prec};
 }
 
-/// Round the limits to one more digit of precision than the numbers on the tick marks.
-static std::pair<double, double> rounded_range(double low_coord, double high_coord)
-{
-    // Set the precision for range limits to 2 more than the tick labels.
-    auto [dx, prec] = axis_round(high_coord - low_coord, min_ticks);
-    auto scale{std::pow(10, prec + 2)};
-    auto round_prec = [scale](double x) {
-        return std::round(x * scale) / scale;
-    };
-    return {round_prec(low_coord), round_prec(high_coord)};
-}
-
 void Axis::set_pos(double low_pos, double high_pos)
 {
     m_low_pos = low_pos;
     m_high_pos = high_pos;
 }
 
-void Axis::set_coord_range(double low_coord, double high_coord, double pad_fraction)
+void Axis::set_coord_range(double low_coord, double high_coord)
 {
     auto cant_be_int = [](double x) {
         return std::isnan(x) || std::isinf(x)
@@ -88,20 +76,19 @@ void Axis::set_coord_range(double low_coord, double high_coord, double pad_fract
     if (std::abs(dx) < std::numeric_limits<double>::epsilon()
         || cant_be_int(low_coord/dx) || cant_be_int(high_coord/dx))
     {
-        std::cerr << "Range out of range" << std::endl;
+        std::cerr << "Range out of range: "
+                  << low_coord << ' ' << high_coord << " dx = " << dx << std::endl;
         return;
     }
-    auto extra{pad_fraction*(high_coord - low_coord)};
-    auto [low, high] = rounded_range(low_coord - extra, high_coord + extra);
-    m_low_coord = low;
-    m_high_coord = high;
+    m_low_coord = low_coord;
+    m_high_coord = high_coord;
 }
 
-void Axis::set_coord_range_by_pos(double low_pos, double high_pos, double pad_fraction)
+void Axis::set_coord_range_by_pos(double low_pos, double high_pos)
 {
     auto coord1{pos_to_coord(low_pos)};
     auto coord2{pos_to_coord(high_pos)};
-    set_coord_range(std::min(coord1, coord2), std::max(coord1, coord2), pad_fraction);
+    set_coord_range(std::min(coord1, coord2), std::max(coord1, coord2));
 }
 
 void Axis::move_coord_range_by_pos(double delta_pos)
@@ -167,9 +154,8 @@ std::vector<double> Axis::coord_to_pos(std::vector<double> const& coords) const
 std::vector<Axis::Tick> Axis::get_ticks() const
 {
     std::vector<Axis::Tick> ts;
-    auto [dx, prec] = axis_round(m_high_coord - m_low_coord, min_ticks);
+    auto const dx{0.5 * axis_round(m_high_coord - m_low_coord, min_ticks).first};
     // Double the tick density to include minor ticks.
-    dx *= 0.5;
     auto low{static_cast<int>(std::ceil(m_low_coord/dx))};
     auto high{static_cast<int>(std::floor(m_high_coord/dx))};
 
@@ -177,29 +163,23 @@ std::vector<Axis::Tick> Axis::get_ticks() const
     {
         auto coord{x*dx};
         ts.emplace_back(coord_to_pos(coord), std::nullopt);
+        // Even-numbered ticks are major.
         if (x % 2 == 0)
-        {
-            // Even-numbered ticks are major.
-            std::ostringstream os;
-            os << std::fixed << std::setprecision(std::max(0, prec)) << coord;
             ts.back().label = format(coord);
-        }
     }
     return ts;
 }
 
-double Axis::round(double pos, int precision) const
+double Axis::round_pos(double pos, int divisions) const
 {
-    auto [dx, prec] = axis_round(m_high_coord - m_low_coord, precision);
-    // Dan't use pos_to_coord() and coord_to_pos(). They depend on the location of the
-    // origin. Here, we only care about scaling.
-    auto scale{(m_high_coord - m_low_coord)/(m_high_pos - m_low_pos)/dx};
-    return std::round(pos*scale)/scale;
+    auto dx{axis_round(m_high_coord - m_low_coord, divisions).first};
+    auto coord{pos_to_coord(pos)};
+    return coord_to_pos(dx * std::round(coord/dx));
 }
 
 std::string Axis::format(double x, int extra_prec) const
 {
-    auto [dx, prec] = axis_round(m_high_coord - m_low_coord, min_ticks);
+    auto prec{axis_round(m_high_coord - m_low_coord, min_ticks).second};
     std::ostringstream os;
     os << std::fixed << std::setprecision(std::max(0, prec + extra_prec)) << x;
     return os.str();
