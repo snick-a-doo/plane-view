@@ -1,5 +1,6 @@
 plane_view_sources = [
   'axis.cc',
+  'color.cc',
   'plotter.cc',
 ]
 

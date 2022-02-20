@@ -24,6 +24,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 
+#include <color.hh>
 #include <plotter.hh>
 
 /// The width of the border around the grid opposite the axes.
@@ -61,8 +62,8 @@ auto constexpr coarse_motion_divisions{20};
 auto constexpr autoscale_padding{0.05};
 
 /// Start with a line style of line rather than points if there are more than this many
-/// points. It can take a while to many points.
-std::size_t constexpr line_plot_threshold{5000};
+/// points. Also draw square points instead of round points.
+std::size_t constexpr big_plot_threshold{5000};
 
 /// The input string that indicates the start of a vector.
 auto constexpr data_tag{"pv.data"};
@@ -74,6 +75,17 @@ auto constexpr output_precision{2};
 /// An enumeration for the x and y directions.
 enum class Direction {x, y};
 
+///@{
+/// Pre-defined colors.
+Color constexpr black{0, 0, 0};
+Color constexpr background{230, 230, 250}; // Tinted to avoid confusion with ggplot2.
+Color constexpr white{255, 255, 255};
+Color constexpr gray{128, 128, 128};
+Color constexpr zoom_box_color{128, 128, 128, 64};
+///}
+
+enum class Point_Style {round, square};
+
 std::ostream& operator<<(std::ostream& os, Point const& p)
 {
     return os << p.x << ", " << p.y;
@@ -83,30 +95,6 @@ std::ostream& operator<<(std::ostream& os, Point const& p)
 double clip(double x, double low, double high)
 {
     return std::min(std::max(x, low), high);
-};
-
-/// RGBA color struct.
-struct Color
-{
-    int red;
-    int green;
-    int blue;
-    int alpha{255}; ///< Opaque by default.
-};
-
-Color constexpr black{0, 0, 0};
-Color constexpr background{230, 230, 250}; /// Tinted to avoid confusion with ggplot2.
-Color constexpr white{255, 255, 255};
-Color constexpr gray{128, 128, 128};
-Color constexpr zoom_box_color{128, 128, 128, 64};
-
-/// The colors of plotted points and lines from Brewer set 2.
-//!! Change to match ggplot2 defaults.
-std::array<Color, 8> plot_colors{
-    Color{0x66, 0xc2, 0xa5}, Color{0xfc, 0x8d, 0x62},
-    Color{0x8d, 0xa0, 0xcb}, Color{0xe7, 0x8a, 0xc3},
-    Color{0xa6, 0xd8, 0x54}, Color{0xff, 0xd9, 0x2f},
-    Color{0xe5, 0xc4, 0x94}, Color{0xb3, 0xb3, 0xb3},
 };
 
 /// Set Cairo's current active color using the Color struct above.
@@ -196,14 +184,15 @@ static void draw_axes_and_grid(Context cr,
 /// Draw the data points and lines.
 static void draw_plot(Context cr,
                       std::vector<double> const& pxs, std::vector<double> const& pys,
-                      Color color, Line_Style style, std::optional<Point> point)
+                      Color color, Point_Style point_style, Line_Style line_style,
+                      std::optional<Point> point)
 {
     auto N{std::min(pxs.size(), pys.size())};
     if (N == 0)
         return;
 
     set_color(cr, color);
-    if (style != Line_Style::points)
+    if (line_style != Line_Style::points)
     {
         cr->set_line_width(1.0);
         cr->move_to(pxs[0], pys[0]);
@@ -211,13 +200,18 @@ static void draw_plot(Context cr,
             cr->line_to(pxs[i], pys[i]);
         cr->stroke();
     }
-    if (style != Line_Style::lines)
+    if (line_style != Line_Style::lines)
     {
         cr->set_line_width(2.0*point_radius);
+        cr->set_line_cap(point_style == Point_Style::round
+                         ? Cairo::LINE_CAP_ROUND : Cairo::LINE_CAP_SQUARE);
         for (std::size_t i = 0; i < N; ++i)
         {
-            cr->move_to(pxs[i], pys[i] - point_radius);
-            cr->line_to(pxs[i], pys[i] + point_radius);
+            // Cairo doesn't draw square endcaps for zero-length lines because the
+            // orientation is indeterminate. So draw a centipixel-long vertical line. For
+            // a millipixel line, only some points are drawn.
+            cr->move_to(pxs[i], pys[i]);
+            cr->line_to(pxs[i], pys[i] + 0.01);
         }
         cr->stroke();
     }
@@ -415,8 +409,9 @@ std::optional<Point> find_closest_point(Point const& p, V const& xs, V const& ys
     return Point{xs[min_index], ys[min_index]};
 }
 
-Plotter::Plotter(Glib::RefPtr<Gtk::Application> app)
+Plotter::Plotter(Glib::RefPtr<Gtk::Application> app, Palette palette)
     : m_app(app),
+      m_palette(palette),
       m_now{m_history.end()}
 {
     set_can_focus(true);
@@ -496,10 +491,10 @@ bool Plotter::on_read(Glib::IOCondition io_cond)
         else if (read_state != -1)
             (read_state % 2 == 0 ? m_xss : m_yss).back().push_back(std::atof(token.c_str()));
     }
-    if (std::accumulate(
-            m_xss.begin(), m_xss.end(), 0U, [](std::size_t n, auto xs){ return n + xs.size(); })
-        > line_plot_threshold)
-        m_line_style = Line_Style::lines;
+    m_total_points = std::accumulate(m_xss.begin(), m_xss.end(), 0U,
+                                     [](std::size_t n, auto xs){ return n + xs.size(); });
+    // Start with lines if there are a lot of points to avoid clutter and delay.
+    m_line_style = m_total_points > big_plot_threshold ? Line_Style::lines : Line_Style::points;
     autoscale();
     record(false);
 
@@ -890,9 +885,11 @@ bool Plotter::on_draw(Context const& cr)
     if (m_closest_point)
         closest_pos = Point{m_x_axis.coord_to_pos(m_closest_point->x),
             m_y_axis.coord_to_pos(m_closest_point->y)};
+    auto point_style{m_total_points > big_plot_threshold
+                     ? Point_Style::square : Point_Style::round};
     for (std::size_t i{0}; i < m_xss.size(); ++i)
         draw_plot(cr, m_x_axis.coord_to_pos(m_xss[i]), m_y_axis.coord_to_pos(m_yss[i]),
-                  plot_colors[i % plot_colors.size()], m_line_style, closest_pos);
+                  get_color(m_palette, i, m_xss.size()), point_style, m_line_style, closest_pos);
 
     // Draw the interactive range box if we're in overview mode.
     if (mp_subrange)

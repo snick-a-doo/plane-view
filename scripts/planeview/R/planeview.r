@@ -10,11 +10,15 @@ pview.app <- '/home/samv/programs/plane-view/build/app/plane-view'
 #'
 #' @param xss A list of x-axis vectors
 #' @param yss A list of y-axis vectors
-pvplot <- function(xss, yss) {
+pvplot <- function(xss, yss, palette) {
     data <- c('pv.data')
     for (i in 1:length(xss))
         data <- c(data, paste(xss[[i]]), 'pv.data', paste(yss[[i]]), 'pv.data')
-    strsplit(system2(pview.app, input=c(head(data, -1), 'pv.end'), stdout=TRUE), split=' ')[[1]]
+    strsplit(system2(pview.app,
+                     args=paste('--palette', palette),
+                     input=c(head(data, -1), 'pv.end'),
+                     stdout=TRUE),
+             split=' ')[[1]]
 }
 
 #' Plot vectors
@@ -34,18 +38,18 @@ pvplot <- function(xss, yss) {
 #' pview(xs, cos(xs), sin(xs))
 #'
 #' @export
-pview <- function(xs, ...) {
+pview <- function(xs, palette='ggplot2', ...) {
     call <- match.call(expand.dots = FALSE)
     range <- character(0)
     if (is.numeric(xs)) {
         if (nargs() == 1) { # 1. Y-vector given. Generate x.
-            range <- pvplot(list(1:length(xs)), list(xs))
+            range <- pvplot(list(1:length(xs)), list(xs), palette)
             x.strs <- paste(1, length(xs), sep=':')
             y.strs <- deparse(call$xs)
         }
         else { # 2. X-vector and 1 or more y-vector given.
             yss <- list(...)
-            range <- pvplot(rep(list(xs), length(yss)), yss)
+            range <- pvplot(rep(list(xs), length(yss)), yss, palette)
             x.strs <- deparse(call$xs)
             y.strs <- call$`...`
         }
@@ -55,10 +59,10 @@ pview <- function(xs, ...) {
             xss <- list()
             for (ys in xs)
                 xss <- c(xss, list(1:length(xs[[1]])))
-            range <- pvplot(xss, xs)
+            range <- pvplot(xss, xs, palette)
         }
         else # 4. Lists of x-vectors and y-vectors given.
-            range <- pvplot(xs, list(...)[[1]])
+            range <- pvplot(xs, list(...)[[1]], palette)
     }
     else
         stop("Usage: Expecting 1 or more vectors or 1 or 2 lists.")

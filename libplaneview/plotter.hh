@@ -17,6 +17,7 @@
 #define PLANE_VIEW_LIBPLANEVIEW_GRID_MAP_HH_INCLUDED
 
 #include "axis.hh"
+#include "color.hh"
 
 #include <gtkmm.h>
 
@@ -59,7 +60,7 @@ std::optional<Point> find_closest_point(Point const& p, V const& xs, V const& ys
 class Plotter : public Gtk::DrawingArea
 {
 public:
-    Plotter(Glib::RefPtr<Gtk::Application> app);
+    Plotter(Glib::RefPtr<Gtk::Application> app, Palette palette);
 
 private:
     /// DrawingArea methods
@@ -90,8 +91,12 @@ private:
     VV m_xss;
     /// A vector of y-value vectors, one for each trace.
     VV m_yss;
+    /// The total number of points on all traces.
+    std::size_t m_total_points{0};
     /// The style of points and lines on the graph.
     Line_Style m_line_style{Line_Style::points};
+    /// The color palette for plotted lines and points.
+    Palette m_palette;
     /// The horizontal axis object.
     Axis m_x_axis;
     /// The vertical axis object.
