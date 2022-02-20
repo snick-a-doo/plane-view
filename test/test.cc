@@ -55,7 +55,7 @@ TEST_CASE("axis")
     }
     SUBCASE("move")
     {
-        ax.move_coord_range_by_pos(25.1);
+        ax.move_coord_range_by_pos(25.0);
         CHECK(range(ax.get_pos_range(), 10.0, 110.0)); // unchanged
         CHECK(range(ax.get_coord_range(), 0.0, 4.0));
     }
@@ -95,7 +95,7 @@ TEST_CASE("inverted axis")
     }
     SUBCASE("move")
     {
-        ax.move_coord_range_by_pos(25.1);
+        ax.move_coord_range_by_pos(25.0);
         CHECK(range(ax.get_pos_range(), 10.0, 110.0)); // unchanged
         CHECK(range(ax.get_coord_range(), 2.0, -2.0));
     }
@@ -113,48 +113,48 @@ TEST_CASE("inverted axis")
     }
 }
 
-TEST_CASE("ticks 10")
+TEST_CASE("ticks 1 to 4")
 {
     Axis ax;
     ax.set_pos(0, 1000);
-    ax.set_coord_range(1.0, 4.0, 0.05);
-    // [1,4] is padded to [0.85,4.15]. Not affected by rounding
+    ax.set_coord_range(1.0, 4.0);
     auto [low, high] = ax.get_coord_range();
-    CHECK(low == 0.85);
-    CHECK(high == 4.15);
-    auto slope{1000.0/3.3};
+    CHECK(low == 1.0);
+    CHECK(high == 4.0);
+    auto slope{1000.0/3.0};
     auto ts{ax.get_ticks()};
-    CHECK(ts.size() == 7);
-    CHECK(close(ts[0].position, 0.15*slope));
-    CHECK(close(ts[1].position - ts[0].position, ts[2].position - ts[1].position));
-    CHECK(close(ts[3].position - ts[2].position, ts[2].position - ts[1].position));
-    CHECK(close(ts[6].position, 1000 - 0.15*slope));
+    // Edge case: major ticks at 1.0, 1.5, 2.0,...4.0. Maybe we can say a tick at the
+    // limit is worth 1/2. In that case 1,2,3,4 would only be 3 ticks and we need at least
+    // 4.
+    CHECK(ts.size() == 13);
+    CHECK(close(ts[0].position, 0));
+    CHECK(close(ts[1].position, 0.25*slope));
+    CHECK(close(ts[12].position, 1000));
 
-    CHECK(ts[0].label == "1");
+    CHECK(ts[0].label == "1.0");
     CHECK(!ts[1].label);
-    CHECK(ts[2].label == "2");
+    CHECK(ts[2].label == "1.5");
     CHECK(!ts[3].label);
-    CHECK(ts[4].label == "3");
+    CHECK(ts[4].label == "2.0");
     CHECK(!ts[5].label);
-    CHECK(ts[6].label == "4");
+    CHECK(ts[12].label == "4.0");
 }
 
-TEST_CASE("ticks 10 round")
+TEST_CASE("ticks 1-e to 4+e")
 {
     Axis ax;
     ax.set_pos(0, 1000);
-    ax.set_coord_range(1.01234, 4.05678, 0.05);
-    // [1,4] is padded to [0.860118,4.209002] and rounded to [0.86,4.21]
+    ax.set_coord_range(0.9999, 4.0001);
     auto [low, high] = ax.get_coord_range();
-    CHECK(low == 0.86);
-    CHECK(high == 4.21);
-    auto slope{1000.0/3.35};
+    CHECK(low == 0.9999);
+    CHECK(high == 4.0001);
+    auto slope{1000.0/3.0002};
     auto ts{ax.get_ticks()};
     CHECK(ts.size() == 7);
-    CHECK(close(ts[0].position, 0.14*slope));
+    CHECK(close(ts[0].position, 0.0001*slope));
     CHECK(close(ts[1].position - ts[0].position, ts[2].position - ts[1].position));
     CHECK(close(ts[3].position - ts[2].position, ts[2].position - ts[1].position));
-    CHECK(close(ts[6].position, 1000 - 0.21*slope));
+    CHECK(close(ts[6].position, 1000 - 0.0001*slope));
 
     CHECK(ts[0].label == "1");
     CHECK(ts[2].label == "2");
@@ -166,7 +166,7 @@ TEST_CASE("ticks 2")
 {
     Axis ax;
     ax.set_pos(0, 1000);
-    ax.set_coord_range(1.0, 8.0, 0.05);
+    ax.set_coord_range(1.0, 8.0);
     auto ts{ax.get_ticks()};
     CHECK(ts.size() == 8);
     CHECK(!ts[0].label);
@@ -180,7 +180,7 @@ TEST_CASE("ticks 2.5")
 {
     Axis ax;
     ax.set_pos(0, 1000);
-    ax.set_coord_range(1.0, 10.0, 0.05);
+    ax.set_coord_range(1.0, 10.2);
     auto ts{ax.get_ticks()};
     CHECK(ts.size() == 8);
     CHECK(ts[1].label == "2.5");
@@ -193,11 +193,7 @@ TEST_CASE("ticks 5")
 {
     Axis ax;
     ax.set_pos(0, 1000);
-    ax.set_coord_range(1.0, 20.0, 0.05);
-    // [1,20] is padded to [0.05,20.95]. Not affected by rounding.
-    auto [low, high] = ax.get_coord_range();
-    CHECK(low == 0.05);
-    CHECK(high == 20.95);
+    ax.set_coord_range(1.0, 20.0);
     auto ts{ax.get_ticks()};
     CHECK(ts.size() == 8);
     CHECK(ts[1].label == "5");
@@ -210,7 +206,7 @@ TEST_CASE("ticks 1")
 {
     Axis ax;
     ax.set_pos(0, 1000);
-    ax.set_coord_range(1.0, 5.0, 0.05);
+    ax.set_coord_range(1.0, 5.0);
     auto ts{ax.get_ticks()};
     CHECK(ts.size() == 9);
     CHECK(ts[0].label == "1");
@@ -224,10 +220,7 @@ TEST_CASE("ticks small")
 {
     Axis ax;
     ax.set_pos(0, 1000);
-    ax.set_coord_range(1.0, 1.01, 0.05);
-    auto [low, high] = ax.get_coord_range();
-    CHECK(low == 0.9995);
-    CHECK(high == 1.0105);
+    ax.set_coord_range(1.0, 1.01);
     auto ts{ax.get_ticks()};
     CHECK(ts.size() == 9);
     CHECK(ts[0].label == "1.0000");
@@ -241,7 +234,7 @@ TEST_CASE("ticks big")
 {
     Axis ax;
     ax.set_pos(0, 1000);
-    ax.set_coord_range(200.0, 2000, 0.05);
+    ax.set_coord_range(200.0, 2000);
     auto ts{ax.get_ticks()};
     CHECK(ts.size() == 8);
     CHECK(ts[1].label == "500");
