@@ -46,8 +46,8 @@ auto constexpr grid_bottom_margin{border_width + closest_point_text_size + range
 /// including the width of labels since that depends on the range.
 auto constexpr grid_left_margin{border_width + range_bar_width + tick_label_gap};
 
-/// The size of a plotted point.
-auto constexpr point_radius{3.0};
+/// The diameter of a plotted point.
+auto constexpr point_diameter{6.0};
 /// The width of the adjustable border of the range box in overview mode.
 auto constexpr handle_width{18.0};
 
@@ -202,14 +202,14 @@ static void draw_plot(Context cr,
     }
     if (line_style != Line_Style::lines)
     {
-        cr->set_line_width(2.0*point_radius);
+        cr->set_line_width(point_diameter);
         cr->set_line_cap(point_style == Point_Style::round
                          ? Cairo::LINE_CAP_ROUND : Cairo::LINE_CAP_SQUARE);
         for (std::size_t i = 0; i < N; ++i)
         {
             // Cairo doesn't draw square endcaps for zero-length lines because the
-            // orientation is indeterminate. So draw a centipixel-long vertical line. For
-            // a millipixel line, only some points are drawn.
+            // orientation is indeterminate. So draw a centipixel-long vertical line.  A
+            // millipixel line is too short; only some points are drawn.
             cr->move_to(pxs[i], pys[i]);
             cr->line_to(pxs[i], pys[i] + 0.01);
         }
@@ -220,10 +220,10 @@ static void draw_plot(Context cr,
         // Draw crosshairs on the passed-in point.
         cr->set_line_width(0.5);
         set_color(cr, black);
-        cr->move_to(point->x - 4*point_radius, point->y);
-        cr->line_to(point->x + 4*point_radius, point->y);
-        cr->move_to(point->x, point->y - 4*point_radius);
-        cr->line_to(point->x, point->y + 4*point_radius);
+        cr->move_to(point->x - 2*point_diameter, point->y);
+        cr->line_to(point->x + 2*point_diameter, point->y);
+        cr->move_to(point->x, point->y - 2*point_diameter);
+        cr->line_to(point->x, point->y + 2*point_diameter);
         cr->stroke();
     }
 }
@@ -410,8 +410,8 @@ std::optional<Point> find_closest_point(Point const& p, V const& xs, V const& ys
 }
 
 Plotter::Plotter(Glib::RefPtr<Gtk::Application> app, Palette palette)
-    : m_app(app),
-      m_palette(palette),
+    : m_palette(palette),
+      m_app(app),
       m_now{m_history.end()}
 {
     set_can_focus(true);
@@ -614,17 +614,15 @@ bool Plotter::on_key_press_event(GdkEventKey* event)
             auto [y1, y2] = m_y_axis.get_coord_range();
             // Change the view, but don't call record(), it's only temporary.
             autoscale();
-            // Set the subrange to the device coordinates of the old range on the
-            // autoscaled axes.
-            mp_subrange = std::make_unique<Subrange>(
-                Point{m_x_axis.coord_to_pos(x1), m_y_axis.coord_to_pos(y2)},
-                Point{m_x_axis.coord_to_pos(x2), m_y_axis.coord_to_pos(y1)});
+            // Set the subrange to the plot coordinates of the old range. Device positions
+            // will be determined after making room for the y-tick labels.
+            mp_subrange = std::make_unique<Subrange>(Point{x1, y2}, Point{x2, y1});
         }
         else
         {
             // Leave overview mode. Set the ranges according to the subrange box.
-            m_x_axis.set_coord_range_by_pos(mp_subrange->get_p1().x, mp_subrange->get_p2().x);
-            m_y_axis.set_coord_range_by_pos(mp_subrange->get_p2().y, mp_subrange->get_p1().y);
+            m_x_axis.set_coord_range_by_pos(mp_subrange->get_pos1().x, mp_subrange->get_pos2().x);
+            m_y_axis.set_coord_range_by_pos(mp_subrange->get_pos2().y, mp_subrange->get_pos1().y);
             mp_subrange.reset();
             record(false);
             queue_draw();
@@ -710,11 +708,11 @@ bool Plotter::on_motion_notify_event(GdkEventMotion* event)
 
     if (mp_subrange)
     {
-        auto last_p1{mp_subrange->get_p1()};
-        auto last_p2{mp_subrange->get_p2()};
+        auto last_p1{mp_subrange->get_pos1()};
+        auto last_p2{mp_subrange->get_pos2()};
         mp_subrange->move({dx, dy});
-        auto p1{mp_subrange->get_p1()};
-        auto p2{mp_subrange->get_p2()};
+        auto p1{mp_subrange->get_pos1()};
+        auto p2{mp_subrange->get_pos2()};
 
         // Redraw the top and left borders...
         redraw(get_window(), last_p2, last_p1, p1, handle_width + 1);
@@ -782,15 +780,21 @@ bool Plotter::on_configure_event(GdkEventConfigure* event)
     Point p1, p2;
     if (mp_subrange)
     {
-        p1 = {m_x_axis.pos_to_coord(mp_subrange->get_p1().x),
-            m_y_axis.pos_to_coord(mp_subrange->get_p1().y)};
-        p2 = {m_x_axis.pos_to_coord(mp_subrange->get_p2().x),
-            m_y_axis.pos_to_coord(mp_subrange->get_p2().y)};
+        p1 = {m_x_axis.pos_to_coord(mp_subrange->get_pos1().x),
+            m_y_axis.pos_to_coord(mp_subrange->get_pos1().y)};
+        p2 = {m_x_axis.pos_to_coord(mp_subrange->get_pos2().x),
+            m_y_axis.pos_to_coord(mp_subrange->get_pos2().y)};
     }
 
-    // Leave space for the range bars and the point display below the x-axis.
-    m_x_axis.set_pos(grid_left_margin, event->width - border_width);
-    m_y_axis.set_pos(event->height - grid_bottom_margin, border_width);
+    // The left position of the x-axis, and the top position of the y-axis don't change
+    // when the window size changes. The first configure event happens before the first
+    // draw. x_low will have the default axis position first time through, but it will be
+    // adjusted when ticks are drawn. The y-axis top position never changes. This is the
+    // only place to do that, so use the constant border_width.
+    auto x_low{m_x_axis.get_pos_range().first};
+    auto y_high{border_width};
+    m_x_axis.set_pos(x_low, event->width - border_width);
+    m_y_axis.set_pos(event->height - grid_bottom_margin, y_high);
 
     // Set the new subrange positions from the coordinates that were saved before the axis
     // change.
@@ -871,11 +875,16 @@ bool Plotter::on_draw(Context const& cr)
         // Draw the grid lines, tick marks and numbers. Do this before drawing ranges so
         // the range and its rectangle are drawn over the axis numbers.
         draw_axes_and_grid(cr, x_ticks, y_ticks, x_low, x_high, y_low, y_high);
+
+        // Set the inital subrange device positions now that we know where the x-axis
+        // starts.
+        if (mp_subrange)
+            mp_subrange->init(m_x_axis, m_y_axis);
     }
 
     // Draw the ranges if zoom-box dragging is in progress.
     if (mp_subrange)
-        draw_ranges(cr, get_window(), mp_subrange->get_p1(), mp_subrange->get_p2(),
+        draw_ranges(cr, get_window(), mp_subrange->get_pos1(), mp_subrange->get_pos2(),
                     m_x_axis, m_y_axis);
     else if (m_drag)
         draw_ranges(cr, get_window(), m_drag->start, m_drag->pointer, m_x_axis, m_y_axis);
@@ -901,11 +910,26 @@ bool Plotter::on_draw(Context const& cr)
     if (mp_subrange)
     {
         cr->set_line_width(0.5);
-        // Fill the entire rectangle...
-        draw_rectangle(cr, mp_subrange->get_p1(), mp_subrange->get_p2(), zoom_box_color, true);
-        // ...then draw the handles as outlines.
-        for (auto side : {Side::left, Side::right, Side::top, Side::bottom})
-            draw_rectangle(cr, mp_subrange->get_p1(side), mp_subrange->get_p2(side), black, false);
+        // Fill the range.
+        draw_rectangle(cr, mp_subrange->get_pos1(), mp_subrange->get_pos2(), zoom_box_color, true);
+        // Draw the handles.
+        Point out1{mp_subrange->get_pos1(Side::top)};
+        Point out2{mp_subrange->get_pos2(Side::bottom)};
+        Point in1{mp_subrange->get_pos2(Side::left).x, mp_subrange->get_pos2(Side::top).y};
+        Point in2{mp_subrange->get_pos1(Side::right).x, mp_subrange->get_pos1(Side::bottom).y};
+        // The outer boundary
+        draw_rectangle(cr, out1, out2, black, false);
+        // Horizontal lines
+        cr->move_to(out1.x, in1.y);
+        cr->line_to(out2.x, in1.y);
+        cr->move_to(out1.x, in2.y);
+        cr->line_to(out2.x, in2.y);
+        // Vertical lines
+        cr->move_to(in1.x, out1.y);
+        cr->line_to(in1.x, out2.y);
+        cr->move_to(in2.x, out1.y);
+        cr->line_to(in2.x, out2.y);
+        cr->stroke();
     }
     // Draw the zoom box if dragging is in progress.
     else if (m_drag && !m_drag->shift)
@@ -966,59 +990,60 @@ void Plotter::update(std::deque<State>::const_iterator it)
     queue_draw();
 }
 
-Plotter::Subrange::Subrange(Point p1, Point p2)
+Plotter::Subrange::Subrange(Point coord1, Point coord2)
+    : m_init_coord1(coord1),
+      m_init_coord2(coord2)
 {
-    set(p1, p2);
 }
 
 void Plotter::Subrange::set(Point p1, Point p2)
 {
-    m_p1 = p1;
-    m_p2 = p2;
+    m_pos1 = p1;
+    m_pos2 = p2;
 }
 
-Point Plotter::Subrange::get_p1(Side side) const
+Point Plotter::Subrange::get_pos1(Side side) const
 {
     switch (side)
     {
     case Side::none:
-        return m_p1;
+        return *m_pos1;
     case Side::left:
     case Side::top:
-        return {m_p1.x - handle_width, m_p1.y - handle_width};
+        return {m_pos1->x - handle_width, m_pos1->y - handle_width};
     case Side::right:
-        return {m_p2.x - handle_width, m_p1.y - handle_width};
+        return {m_pos2->x - handle_width, m_pos1->y - handle_width};
     case Side::bottom:
-        return {m_p1.x - handle_width, m_p2.y - handle_width};
+        return {m_pos1->x - handle_width, m_pos2->y - handle_width};
     }
     return Point();
 }
 
-Point Plotter::Subrange::get_p2(Side side) const
+Point Plotter::Subrange::get_pos2(Side side) const
 {
     switch (side)
     {
     case Side::none:
-        return m_p2;
+        return *m_pos2;
     case Side::left:
-        return {m_p1.x + handle_width, m_p2.y + handle_width};
+        return {m_pos1->x + handle_width, m_pos2->y + handle_width};
     case Side::top:
-        return {m_p2.x + handle_width, m_p1.y + handle_width};
+        return {m_pos2->x + handle_width, m_pos1->y + handle_width};
     case Side::right:
     case Side::bottom:
-        return {m_p2.x + handle_width, m_p2.y + handle_width};
+        return {m_pos2->x + handle_width, m_pos2->y + handle_width};
     }
     return Point();
 }
 
 double Plotter::Subrange::width() const
 {
-    return std::abs(m_p2.x - m_p1.x);
+    return std::abs(m_pos2->x - m_pos1->x);
 }
 
 double Plotter::Subrange::height() const
 {
-    return std::abs(m_p2.y - m_p1.y);
+    return std::abs(m_pos2->y - m_pos1->y);
 }
 
 bool& Plotter::Subrange::get_side(Side side)
@@ -1032,27 +1057,39 @@ void Plotter::Subrange::start(Point p)
         return p.x >= p1.x && p.x <= p2.x && p.y >= p1.y && p.y <= p2.y;
     };
     // Find which sides to move from the position of the pointer.
-    if (within({m_p1.x + handle_width, m_p1.y + handle_width},
-               {m_p2.x - handle_width, m_p2.y - handle_width}))
+    if (within({m_pos1->x + handle_width, m_pos1->y + handle_width},
+               {m_pos2->x - handle_width, m_pos2->y - handle_width}))
         m_sides.fill(true);
     else
         for (auto side : {Side::left, Side::right, Side::top, Side::bottom})
-            get_side(side) = within(get_p1(side), get_p2(side));
+            get_side(side) = within(get_pos1(side), get_pos2(side));
 }
 
 void Plotter::Subrange::move(Point dp, bool all)
 {
-    m_p1.x += all || get_side(Side::left) ? dp.x : 0;
-    m_p2.x += all || get_side(Side::right) ? dp.x : 0;
-    m_p1.y += all || get_side(Side::top) ? dp.y : 0;
-    m_p2.y += all || get_side(Side::bottom) ? dp.y : 0;
+    m_pos1->x += all || get_side(Side::left) ? dp.x : 0;
+    m_pos2->x += all || get_side(Side::right) ? dp.x : 0;
+    m_pos1->y += all || get_side(Side::top) ? dp.y : 0;
+    m_pos2->y += all || get_side(Side::bottom) ? dp.y : 0;
 }
 
 void Plotter::Subrange::scale(double x_frac, double y_frac, std::optional<Point> center)
 {
-    auto mid{center ? *center : Point{std::midpoint(m_p1.x, m_p2.x), std::midpoint(m_p1.y, m_p2.y)}};
-    m_p1.x = x_frac*(m_p1.x - mid.x) + mid.x;
-    m_p1.y = y_frac*(m_p1.y - mid.y) + mid.y;
-    m_p2.x = x_frac*(m_p2.x - mid.x) + mid.x;
-    m_p2.y = y_frac*(m_p2.y - mid.y) + mid.y;
+    auto mid{center ? *center : Point{std::midpoint(m_pos1->x, m_pos2->x),
+                                      std::midpoint(m_pos1->y, m_pos2->y)}};
+    m_pos1->x = x_frac*(m_pos1->x - mid.x) + mid.x;
+    m_pos1->y = y_frac*(m_pos1->y - mid.y) + mid.y;
+    m_pos2->x = x_frac*(m_pos2->x - mid.x) + mid.x;
+    m_pos2->y = y_frac*(m_pos2->y - mid.y) + mid.y;
+}
+
+void Plotter::Subrange::init(Axis const& x_axis, Axis const& y_axis)
+{
+    // Ignore if the device positions have already been set.
+    if (m_pos1 && m_pos2)
+        return;
+    // Use the passed-in axes an the plot coordinates passed to the constructor to set the
+    // initial device positions.
+    set(Point{x_axis.coord_to_pos(m_init_coord1.x), y_axis.coord_to_pos(m_init_coord1.y)},
+        Point{x_axis.coord_to_pos(m_init_coord2.x), y_axis.coord_to_pos(m_init_coord2.y)});
 }

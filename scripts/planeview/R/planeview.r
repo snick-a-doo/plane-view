@@ -38,7 +38,7 @@ pvplot <- function(xss, yss, palette) {
 #' pview(xs, cos(xs), sin(xs))
 #'
 #' @export
-pview <- function(xs, palette='ggplot2', ...) {
+pview <- function(xs, ..., palette='ggplot2') {
     call <- match.call(expand.dots = FALSE)
     range <- character(0)
     if (is.numeric(xs)) {

@@ -112,7 +112,10 @@ private:
     {
     public:
         /// Create a subrange with the given corners.
-        Subrange(Point p1, Point p2);
+        Subrange(Point coord1, Point coord2);
+        /// Set the initial device positions. This can't be known until we know the width
+        /// of the tick labels.
+        void init(Axis const& x_axis, Axis const& y_axis);
         /// Change the corner positions.
         void set(Point p1, Point p2);
         /// Find which of the sides should change when the pointer moves depending on
@@ -124,10 +127,10 @@ private:
         void scale(double x_frac, double y_frac, std::optional<Point> center);
         /// @return The upper-left corner of the range, or if a side is specified, that
         /// side's active region.
-        Point get_p1(Side side = Side::none) const;
+        Point get_pos1(Side side = Side::none) const;
         /// @return The lower-right corner of the range, or if a side is specified, that
         /// side's active region.
-        Point get_p2(Side side = Side::none) const;
+        Point get_pos2(Side side = Side::none) const;
         /// @return The height of the range.
         double height() const;
         /// @return The width of the range.
@@ -139,9 +142,15 @@ private:
         /// Flags that tell which sides of the range box are being adjusted.
         std::array<bool, 4> m_sides{false, false, false, false};
         /// The upper-left corner of the range in device coordinates.
-        Point m_p1;
+        std::optional<Point> m_pos1;
         /// The lower-right corner of the range in device coordinates.
-        Point m_p2;
+        std::optional<Point> m_pos2;
+        /// @{
+        /// The initial coordinates of the range. Used for initializing the positions
+        /// m_pos1 and m_pos2 in init()>
+        const Point m_init_coord1;
+        const Point m_init_coord2;
+        /// }
     };
     /// The active subrange in overview mode or nullptr.
     std::unique_ptr<Subrange> mp_subrange;
