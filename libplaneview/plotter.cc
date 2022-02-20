@@ -544,6 +544,12 @@ bool Plotter::on_key_press_event(GdkEventKey* event)
         ? pan_distance.second : pan_distance.first};
     auto const zoom{event->state & Gdk::ModifierType::CONTROL_MASK
         ? zoom_factor.second : zoom_factor.first};
+    // Shift -> vertical zoom only
+    auto const x_zoom{event->state & Gdk::ModifierType::SHIFT_MASK
+        ? 1.0 : zoom};
+    // Alt -> horizontal zoom only.
+    auto const y_zoom{event->state & Gdk::ModifierType::MOD1_MASK
+        ? 1.0 : zoom};
 
     switch (event->keyval)
     {
@@ -553,12 +559,12 @@ bool Plotter::on_key_press_event(GdkEventKey* event)
         break;
     case GDK_KEY_plus:
     case GDK_KEY_equal:
-        scale(1.0/zoom, 1.0/zoom);
+        scale(1.0/x_zoom, 1.0/y_zoom);
         record(true);
         break;
     case GDK_KEY_minus:
     case GDK_KEY_underscore:
-        scale(zoom, zoom);
+        scale(x_zoom, y_zoom);
         record(true);
         break;
     case GDK_KEY_Left:
