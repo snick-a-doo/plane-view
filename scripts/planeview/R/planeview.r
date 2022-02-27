@@ -1,6 +1,6 @@
 #' The name of the plain-view executable. Currently it's the full path to the development
 #' build. Change to just the executable name after it's installed.
-pview.app <- '/home/samv/programs/plane-view/build/app/plane-view'
+pview.app <- 'plane-view'
 
 #' Helper function for pview()
 #'
