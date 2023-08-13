@@ -4,23 +4,16 @@
 \alias{pview}
 \title{Plot vectors}
 \usage{
-pview(xs, ...)
+pview(.data, xs, ..., .palette = "ggplot2")
 }
 \value{
-A string that evaluates to a ggplot of the displayed plot. \emph{Not implemented yet.}
+A string that gives the ranges of the plot.
 }
 \description{
-pview may be called as
-\enumerate{
-\item pview(ys)  A vector of indices will be generated for x.
-\item pview(xs, ys1, ys2, ...)
-\item pview(list(ys1, ys2, ...))  A vector of indices will be generated for x.
-\item pview(list(xs1, xs2, ...), list(ys1, ys2, ...))
-}
+Plot vectors
 }
 \examples{
-xs <- 0:99/10
-pview(xs, cos(xs))
-pview(xs, cos(xs), sin(xs))
+wave <- tibble(theta = 0:99/10, cos = cos(theta), sin = sin(theta))
+wave |> pview(theta, cos, sin)
 
 }

@@ -4,10 +4,10 @@
 \alias{pvplot}
 \title{Helper function for pview()}
 \usage{
-pvplot(xss, yss)
+pvplot(xs, yss, palette)
 }
 \arguments{
-\item{xss}{A list of x-axis vectors}
+\item{xs}{An x-axis vector}
 
 \item{yss}{A list of y-axis vectors}
 }

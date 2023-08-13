@@ -8,72 +8,40 @@ pview.app <- 'plane-view'
 #' because it requires a particular format for the data. pview() is a more flexible front
 #' end to this function.
 #'
-#' @param xss A list of x-axis vectors
+#' @param xs An x-axis vector
 #' @param yss A list of y-axis vectors
-pvplot <- function(xss, yss, palette) {
+#'
+#' @importFrom stringr str_split
+#'
+pvplot <- function(xs, yss, palette) {
     data <- c('pv.data')
-    for (i in 1:length(xss))
-        data <- c(data, paste(xss[[i]]), 'pv.data', paste(yss[[i]]), 'pv.data')
-    strsplit(system2(pview.app,
-                     args=paste('--palette', palette),
-                     input=c(head(data, -1), 'pv.end'),
-                     stdout=TRUE),
-             split=' ')[[1]]
+    for (i in seq_along(yss))
+        data <- c(data, paste(xs), 'pv.data', paste(yss[[i]]), 'pv.data')
+    system2(pview.app,
+            args = paste('--palette', palette),
+            input = c(head(data, -1), 'pv.end'),
+            stdout = TRUE) |>
+        stringr::str_split(' ')
 }
 
-#' Plot vectors
-#'
-#' pview may be called as
-#' 1. pview(ys)  A vector of indices will be generated for x.
-#' 2. pview(xs, ys1, ys2, ...)
-#' 3. pview(list(ys1, ys2, ...))  A vector of indices will be generated for x.
-#' 4. pview(list(xs1, xs2, ...), list(ys1, ys2, ...))
+#' Interactive plotting
 #'
 #' @return
-#' A string that evaluates to a ggplot of the displayed plot. \emph{Not implemented yet.}
+#' A string that gives the ranges of the plot.
+#'
+#' @importFrom dplyr pull
+#' @importFrom purrr map
+#' @importFrom stringr str_glue
 #'
 #' @examples
-#' xs <- 0:99/10
-#' pview(xs, cos(xs))
-#' pview(xs, cos(xs), sin(xs))
+#' wave <- tibble(theta = 0:99/10, cos = cos(theta), sin = sin(theta))
+#' wave |> pview(theta, cos, sin)
 #'
 #' @export
-pview <- function(xs, ..., palette='ggplot2') {
-    call <- match.call(expand.dots = FALSE)
-    range <- character(0)
-    if (is.numeric(xs)) {
-        if (nargs() == 1) { # 1. Y-vector given. Generate x.
-            range <- pvplot(list(1:length(xs)), list(xs), palette)
-            x.strs <- paste(1, length(xs), sep=':')
-            y.strs <- deparse(call$xs)
-        }
-        else { # 2. X-vector and 1 or more y-vector given.
-            yss <- list(...)
-            range <- pvplot(rep(list(xs), length(yss)), yss, palette)
-            x.strs <- deparse(call$xs)
-            y.strs <- call$`...`
-        }
-    }
-    else if (typeof(xs) == 'list') {
-        if (nargs() == 1) { # 3. List of y-vectors given. Generate x for each.
-            xss <- list()
-            for (ys in xs)
-                xss <- c(xss, list(1:length(xs[[1]])))
-            range <- pvplot(xss, xs, palette)
-        }
-        else # 4. Lists of x-vectors and y-vectors given.
-            range <- pvplot(xs, list(...)[[1]], palette)
-    }
-    else
-        stop("Usage: Expecting 1 or more vectors or 1 or 2 lists.")
-
-    ## Return a ggplot command that reproduces the plot.
-    ##! Not implemented for cases 3 or 4 yet.
-    cols = as.list(1 + 1:length(y.strs))
-    paste('ggplot()',
-          paste('geom_point(aes(', x.strs, ', ', y.strs, '), color=', cols, ')', sep='', collapse=' + '),
-          paste('coord_cartesian(xlim=c(', range[1], ', ', range[2],
-                '), ylim=c(', range[3], ', ', range[4], '))', sep=''),
-          "labs(x='', y='')",
-          sep=' + ')
+pview <- function(.data, xs, ..., .palette = 'ggplot2') {
+    xs <- .data |> dplyr::pull({{ xs }})
+    yss <- purrr::map(enquos(...), function(ys) .data |> dplyr::pull({{ ys }}))
+    range <- pvplot(xs, yss, .palette)[[1]]
+    stringr::str_glue('coord_cartesian(xlim = c({range[1]}, {range[2]}), \\
+                      ylim = c({range[3]}, {range[4]}))')
 }
