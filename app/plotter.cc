@@ -364,6 +364,10 @@ std::optional<Point> find_closest_point(Point const& p, V const& xs, V const& ys
     // Go through the x-values in order of closeness to the pointer in the
     // x-direction. Udate min_index when a closer point is found.
     std::size_t min_index{static_cast<std::size_t>(std::distance(xs.begin(), it))};
+
+    if (min_index == 0)
+        return Point{xs[min_index], ys[min_index]};
+
     std::size_t left{min_index - 1};
     std::size_t right{min_index};
     std::size_t const last{xs.size() - 1};

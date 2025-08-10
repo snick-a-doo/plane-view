@@ -2,7 +2,7 @@
 % Please edit documentation in R/planeview.r
 \name{pview}
 \alias{pview}
-\title{Plot vectors}
+\title{Interactive plotting}
 \usage{
 pview(.data, xs, ..., .palette = "ggplot2")
 }
@@ -10,7 +10,7 @@ pview(.data, xs, ..., .palette = "ggplot2")
 A string that gives the ranges of the plot.
 }
 \description{
-Plot vectors
+Interactive plotting
 }
 \examples{
 wave <- tibble(theta = 0:99/10, cos = cos(theta), sin = sin(theta))

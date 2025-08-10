@@ -11,6 +11,5 @@ project('plane-view', 'cpp',
 
 gtkmm_dep = dependency('gtkmm-3.0')
 
-subdir('libplaneview')
 subdir('test')
 subdir('app')

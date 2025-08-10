@@ -2,6 +2,6 @@
 
 export(pview)
 importFrom(dplyr,pull)
-importFrom(purr,map)
+importFrom(purrr,map)
 importFrom(stringr,str_glue)
 importFrom(stringr,str_split)
