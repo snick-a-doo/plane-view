@@ -423,10 +423,12 @@ Plotter::Plotter(Glib::RefPtr<Gtk::Application> app, Palette palette)
                Gdk::POINTER_MOTION_MASK | Gdk::SCROLL_MASK | Gdk::STRUCTURE_MASK);
 
     // Listen on standard input.
-    m_io_connection = Glib::signal_io().connect(sigc::mem_fun(*this, &Plotter::on_read),
-                                                STDIN_FILENO,
-                                                Glib::IOCondition::IO_IN);
-    m_io_channel = Glib::IOChannel::create_from_fd(STDIN_FILENO);
+    // m_io_connection = Glib::signal_io().connect(sigc::mem_fun(*this, &Plotter::on_read),
+    //                                             STDIN_FILENO,
+    //                                             Glib::IOCondition::IO_IN);
+    // m_io_channel = Glib::IOChannel::create_from_fd(STDIN_FILENO);
+
+    read_stream(std::cin);
 }
 
 void Plotter::autoscale()
@@ -468,6 +470,7 @@ void Plotter::autoscale()
 
 bool Plotter::on_read(Glib::IOCondition io_cond)
 {
+    assert(false);
     if ((io_cond & Glib::IOCondition::IO_IN) != Glib::IOCondition::IO_IN)
     {
         std::cerr << "Unexpected IO condition" << std::endl;
@@ -477,12 +480,16 @@ bool Plotter::on_read(Glib::IOCondition io_cond)
     // on_read() should only be called once.
     assert(m_xss.empty() && m_yss.empty());
     Glib::ustring data;
-    auto read_state{-1};
     auto status{m_io_channel->read_to_end(data)};
     if (status != Glib::IO_STATUS_NORMAL)
         return true;
-
     std::istringstream is(data);
+    return read_stream(is);
+}
+
+bool Plotter::read_stream(std::istream& is)
+{
+    auto read_state{-1};
     std::string token;
     while (is)
     {

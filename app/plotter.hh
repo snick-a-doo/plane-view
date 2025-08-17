@@ -21,8 +21,8 @@
 
 #include <gtkmm.h>
 
-#include <optional>
 #include <deque>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -77,7 +77,9 @@ private:
 
     /// Callback for reading standard input.
     bool on_read(Glib::IOCondition io_cond);
+    /// Read data from standard input.
 
+    bool read_stream(std::istream& is);
     /// Set the axes wide enough to contain all points plus padding, then redraw.
     void autoscale();
 
